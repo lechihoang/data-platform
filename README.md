@@ -17,7 +17,7 @@ Dự án này xây dựng một hệ thống Data Lakehouse hoàn chỉnh để 
 
 ![Sơ đồ luồng dữ liệu](./static/data_flow.png)
 
-### Đường thẳng
+### Giải thích
 
 1. **NiFi** tải file từ Internet về **MinIO** (raw data: parquet/csv).
 2. **Nessie** tạo branch dev trước (tách nhánh riêng cho lần chạy, ví dụ `etl_run_2024_01`), checkout sang branch dev.
