@@ -6,20 +6,30 @@ from pyspark.sql import SparkSession, functions as F
 def process(spark, logger, target_year: int, target_month: int, branch_name: str):
     
     logger.info(
-        "Spark app started: app_id=%s, eventLog.enabled=%s, eventLog.dir=%s",
-        spark.sparkContext.applicationId,
-        spark.conf.get("spark.eventLog.enabled"),
-        spark.conf.get("spark.eventLog.dir"),
+        f"Spark app started: app_id={spark.sparkContext.applicationId}, eventLog.enabled={spark.conf.get('spark.eventLog.enabled')}, eventLog.dir={spark.conf.get('spark.eventLog.dir')}"
     )
     
-    logger.info("STARTING BRONZE TO SILVER (Branch: %s)", branch_name)
+    logger.info(f"STARTING BRONZE TO SILVER (Branch: {branch_name})")
     
-    logger.info(f"Checkout branch: {branch_name}")
+    logger.info(f"Checkout branch: main")
     spark.sql("USE REFERENCE main IN nessie")
+    
+    # -------------------------------------------------------------------------
+    # LƯU Ý QUAN TRỌNG: 
+    # Chỉ mở comment 3 dòng code dưới đây trong LẦN CHẠY ĐẦU TIÊN của toàn bộ project 
+    # (khi Nessie repo còn trắng tinh, nhánh main chưa có commit nào) để ép Nessie 
+    # sinh ra Initial Commit. Sau lần chạy đầu tiên, hãy comment lại toàn bộ phần này.
+    # -------------------------------------------------------------------------
+    # logger.info("Initializing Nessie commit history with a transient dummy namespace")
+    # spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.dummy_init")
+    # spark.sql("DROP NAMESPACE IF EXISTS nessie.dummy_init")
+    # -------------------------------------------------------------------------
+    
+    logger.info(f"Creating and checking out branch: {branch_name}")
     spark.sql(f"CREATE BRANCH IF NOT EXISTS {branch_name} IN nessie FROM main")
     spark.sql(f"USE REFERENCE {branch_name} IN nessie")
     
-    logger.info("Creating namespace: nessie.silver")
+    logger.info(f"Creating namespace: nessie.silver on branch {branch_name}")
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.silver")
     
     logger.info("Reading from bronze: nessie.bronze.yellow_tripdata")
@@ -59,7 +69,7 @@ def process(spark, logger, target_year: int, target_month: int, branch_name: str
                    .filter(F.col("trip_duration_seconds") < 86400)
     )
     
-    logger.info("Row count after cleaning: %d", df_enriched.count())
+    logger.info(f"Row count after cleaning: {df_enriched.count()}")
     
 
     df_enriched.write \
@@ -84,7 +94,7 @@ def process(spark, logger, target_year: int, target_month: int, branch_name: str
              )
              .dropDuplicates(["LocationID"])
     )
-    logger.info("Zone lookup row count: %d", df_zone.count())
+    logger.info(f"Zone lookup row count: {df_zone.count()}")
 
     df_zone.write \
         .format("iceberg") \
