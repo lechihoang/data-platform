@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="Data Flow Lakehouse" id="d">
-        <mxGraphModel dx="1614" dy="775" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2072" pageHeight="634" math="0" shadow="0">
+        <mxGraphModel dx="1218" dy="548" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2072" pageHeight="634" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -134,15 +134,16 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="ed9" value="ASSIGN main TO dev" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;jettySize=auto;orthogonalLoop=1;fontSize=10;fontColor=light-dark(#1B2733,#CFE0F0);strokeColor=light-dark(#2D6A9F,#5B9BD5);strokeWidth=2;labelBackgroundColor=light-dark(#FFFFFF,#0B0F14);exitX=0;exitY=0.667;exitDx=0;exitDy=0;entryX=1;entryY=0.333;entryDx=0;entryDy=0;" parent="1" source="merge_main" target="nessie" edge="1">
+                <mxCell id="ed9" value="MERGE BRANCH dev INTO main" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;jettySize=auto;orthogonalLoop=1;fontSize=10;fontColor=light-dark(#1B2733,#CFE0F0);strokeColor=light-dark(#2D6A9F,#5B9BD5);strokeWidth=2;labelBackgroundColor=light-dark(#FFFFFF,#0B0F14);exitX=0;exitY=0.667;exitDx=0;exitDy=0;entryX=1;entryY=0.333;entryDx=0;entryDy=0;" parent="1" source="merge_main" target="nessie" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1132" y="186"/>
                             <mxPoint x="1132" y="222"/>
                         </Array>
+                        <mxPoint as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="6" value="&lt;div&gt;Pipeline&lt;/div&gt;Trigger" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;jettySize=auto;orthogonalLoop=1;fontSize=10;fontColor=light-dark(#1B2733,#CFE0F0);strokeColor=light-dark(#2D6A9F,#5B9BD5);strokeWidth=2;labelBackgroundColor=light-dark(#FFFFFF,#0B0F14);exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1">
+                <mxCell id="6" value="&lt;div&gt;Pipeline&lt;/div&gt;Trigger" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=0;jettySize=auto;orthogonalLoop=1;fontSize=10;fontColor=light-dark(#1B2733,#CFE0F0);strokeColor=light-dark(#2D6A9F,#5B9BD5);strokeWidth=2;labelBackgroundColor=light-dark(#FFFFFF,#0B0F14);exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <mxPoint x="680" y="230" as="sourcePoint"/>
                         <mxPoint x="936" y="230" as="targetPoint"/>
