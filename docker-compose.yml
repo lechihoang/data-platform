@@ -1,0 +1,233 @@
+services:
+  minio:
+    build:
+      context: ./infra/minio
+      dockerfile: Dockerfile
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    networks:
+      - lakehouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio-init:
+    image: minio/mc
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - lakehouse
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      /usr/bin/mc mb myminio/lakehouse --ignore-existing;
+      exit 0;
+      "
+
+  nessie:
+    build:
+      context: ./infra/nessie
+      dockerfile: Dockerfile
+    container_name: nessie
+    ports:
+      - "19120:19120"
+    environment:
+      NESSIE_CATALOG_DEFAULT_WAREHOUSE: ${NESSIE_CATALOG_DEFAULT_WAREHOUSE}
+      NESSIE_CATALOG_SERVICE_ICEBERG_ENABLED: ${NESSIE_CATALOG_SERVICE_ICEBERG_ENABLED}
+      QUARKUS_LOG_LEVEL: ${QUARKUS_LOG_LEVEL}
+    networks:
+      - lakehouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19120/q/health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  spark-master:
+    build:
+      context: ./infra/spark
+      dockerfile: Dockerfile
+    container_name: spark-master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    environment:
+      SPARK_MASTER_HOST: spark-master
+      SPARK_MASTER_PORT: 7077
+      SPARK_MASTER_WEBUI_PORT: 8080
+      SPARK_PUBLIC_DNS: localhost
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      SPARK_DAEMON_JAVA_OPTS: "-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties"
+    entrypoint: ["bash", "-c", "/opt/spark/sbin/start-master.sh && tail -f /dev/null"]
+    volumes:
+      - ./infra/spark/config:/opt/spark/conf
+      - spark-events:/opt/spark-events
+      - spark-work:/opt/spark/work
+    networks:
+      - lakehouse
+    depends_on:
+      - minio
+      - nessie
+
+  spark-worker:
+    build:
+      context: ./infra/spark
+      dockerfile: Dockerfile
+    container_name: spark-worker
+    ports:
+      - "8081:8081"
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_WEBUI_PORT: 8081
+      SPARK_PUBLIC_DNS: localhost
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      SPARK_DAEMON_JAVA_OPTS: "-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties"
+    entrypoint: ["bash", "-c", "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /dev/null"]
+    volumes:
+      - ./infra/spark/config:/opt/spark/conf
+      - spark-events:/opt/spark-events
+      - spark-work:/opt/spark/work
+    networks:
+      - lakehouse
+
+  spark-history-server:
+    build:
+      context: ./infra/spark
+      dockerfile: Dockerfile
+    container_name: spark-history-server
+    ports:
+      - "18080:18080"
+    environment:
+      SPARK_HISTORY_OPTS: "-Dspark.history.fs.logDirectory=file:/opt/spark-events"
+      SPARK_PUBLIC_DNS: localhost
+    entrypoint: ["bash", "-c", "/opt/spark/sbin/start-history-server.sh && tail -f /dev/null"]
+    volumes:
+      - ./infra/spark/config:/opt/spark/conf
+      - spark-events:/opt/spark-events
+    networks:
+      - lakehouse
+
+  jupyter:
+    build:
+      context: ./infra/jupyter
+      dockerfile: Dockerfile
+    container_name: jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+      HOME: /tmp
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - ./notebook:/opt/spark/work-dir/notebook
+      - ./infra/spark/config:/opt/spark/conf
+      - spark-events:/opt/spark-events
+    networks:
+      - lakehouse
+    depends_on:
+      - spark-master
+
+  nifi-registry:
+    build:
+      context: ./infra/nifi
+      dockerfile: Dockerfile.registry
+    container_name: nifi-registry
+    ports:
+      - "18081:18080"
+    volumes:
+      - ./infra/nifi/registry_db:/opt/nifi-registry/nifi-registry-current/database
+      - ./infra/nifi/flow:/opt/nifi-registry/nifi-registry-current/flow_storage
+    networks:
+      - lakehouse
+
+  nifi:
+    build:
+      context: ./infra/nifi
+      dockerfile: Dockerfile
+    container_name: nifi
+    ports:
+      - "8082:8443"
+    volumes:
+      - nifi_database:/opt/nifi/nifi-current/database_repository
+      - nifi_flowfile:/opt/nifi/nifi-current/flowfile_repository
+      - nifi_content:/opt/nifi/nifi-current/content_repository
+      - nifi_provenance:/opt/nifi/nifi-current/provenance_repository
+      - nifi_conf:/opt/nifi/nifi-current/conf
+    environment:
+      NIFI_JVM_HEAP_INIT: "2g"
+      NIFI_JVM_HEAP_MAX: "2g"
+      NIFI_WEB_HTTPS_PORT: 8443
+      NIFI_WEB_PROXY_HOST: localhost:8082
+      SINGLE_USER_CREDENTIALS_USERNAME: ${NIFI_SINGLE_USER_CREDENTIALS_USERNAME}
+      SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_SINGLE_USER_CREDENTIALS_PASSWORD}
+      NIFI_SENSITIVE_PROPS_KEY: '+U4kMHG1yNwZoPgSxRVpLoRKPTaeLGa/'
+    networks:
+      - lakehouse
+    depends_on:
+      - minio
+      - nifi-registry
+
+  dagster:
+    build:
+      context: ./infra/dagster
+      dockerfile: Dockerfile
+    container_name: dagster
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./infra/dagster:/opt/dagster/app
+      - ./infra/dagster/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
+      - ./infra/dagster/workspace.yaml:/opt/dagster/dagster_home/workspace.yaml
+      - ./infra/spark/config:/opt/spark/conf
+      - spark-events:/opt/spark-events
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      SPARK_CONF_DIR: /opt/spark/conf
+    networks:
+      - lakehouse
+    depends_on:
+      - spark-master
+
+
+networks:
+  lakehouse:
+    driver: bridge
+
+volumes:
+  minio_data:
+  spark-work:
+  spark-events:
+  nifi_database:
+  nifi_flowfile:
+  nifi_content:
+  nifi_provenance:
+  nifi_conf:

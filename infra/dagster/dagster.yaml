@@ -1,0 +1,3 @@
+# Default dagster.yaml
+telemetry:
+  enabled: false

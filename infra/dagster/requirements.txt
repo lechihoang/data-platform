@@ -1,0 +1,9 @@
+dagster
+dagster-webserver
+pyspark[connect]==4.0.0
+pyarrow>=11.0.0
+grpcio>=1.62.0
+grpcio-status>=1.62.0
+pandas
+great-expectations
+dagster-pipes
