@@ -10,7 +10,7 @@ Dự án này xây dựng một hệ thống Data Lakehouse hoàn chỉnh để 
 - **MinIO**: Đóng vai trò là **Object Storage** (tương tự Amazon S3). Tất cả raw data và processed data đều nằm tại đây.
 - **Apache Spark**: Đóng vai trò là **Data Processing Engine**. Spark sẽ đọc dữ liệu từ MinIO, thực hiện các tác vụ ETL, làm sạch, biến đổi, aggregate và ghi dữ liệu đầu ra.
 - **Apache Iceberg**: Đóng vai trò là **Table Format**. Khi Spark ghi dữ liệu trở lại MinIO, nó sẽ ghi dưới định dạng Iceberg, giúp dữ liệu có tính ACID (hỗ trợ update, delete, time-travel) giống như một database truyền thống trên nền tảng Data Lake.
-- **Project Nessie**: Đóng vai trò là **Data Catalog & Version Control**. Nó hoạt động như một "Git for Data", giúp theo dõi metadata của Iceberg, cho phép branch, merge và rollback dữ liệu dễ dàng.
+- **Project Nessie**: Đóng vai trò là **Data Catalog & Version Control**. Nessie quản lý metadata của Iceberg, cung cấp các tính năng quản lý phiên bản dữ liệu (branch, merge, rollback).
 - **Dagster**: Đóng vai trò là công cụ **Data Orchestration**. Dagster sẽ điều phối và quản lý toàn bộ pipeline ETL, theo dõi sự phụ thuộc giữa các tác vụ (assets/ops) và kích hoạt các job Spark chạy tự động.
 
 ## 2. Data Flow
