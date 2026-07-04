@@ -1,3 +1,4 @@
+from dagster_pipes import open_dagster_pipes
 import time
 import logging
 import sys
@@ -118,3 +119,14 @@ def process(spark, logger, target_year: int, target_month: int, branch_name: str
 
 
     logger.info("SILVER TO GOLD completed successfully!")
+
+
+if __name__ == "__main__":
+    with open_dagster_pipes() as pipes:
+        target_year = pipes.get_extra("target_year")
+        target_month = pipes.get_extra("target_month")
+        branch_name = pipes.get_extra("branch_name")
+        
+        spark = SparkSession.builder.appName("spark_job").getOrCreate()
+        process(spark, pipes.log, target_year, target_month, branch_name)
+        spark.stop()

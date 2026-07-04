@@ -50,6 +50,11 @@ services:
       NESSIE_CATALOG_DEFAULT_WAREHOUSE: ${NESSIE_CATALOG_DEFAULT_WAREHOUSE}
       NESSIE_CATALOG_SERVICE_ICEBERG_ENABLED: ${NESSIE_CATALOG_SERVICE_ICEBERG_ENABLED}
       QUARKUS_LOG_LEVEL: ${QUARKUS_LOG_LEVEL}
+      # Persist data with RocksDB backend
+      NESSIE_VERSION_STORE_TYPE: ROCKSDB
+      NESSIE_VERSION_STORE_PERSIST_ROCKS_DB_DATABASE_PATH: /var/lib/nessie/rocks
+    volumes:
+      - nessie_data:/var/lib/nessie
     networks:
       - lakehouse
     healthcheck:
@@ -224,6 +229,7 @@ networks:
 
 volumes:
   minio_data:
+  nessie_data:
   spark-work:
   spark-events:
   nifi_database:

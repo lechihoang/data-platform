@@ -1,3 +1,5 @@
+from dagster_pipes import open_dagster_pipes
+from pyspark.sql import SparkSession
 import great_expectations as gx
 
 def process(spark, logger, target_year: int, target_month: int, branch_name: str):
@@ -64,3 +66,14 @@ def process(spark, logger, target_year: int, target_month: int, branch_name: str
     ])
 
     logger.info("All Gold tables passed Great Expectations validation.")
+
+
+if __name__ == "__main__":
+    with open_dagster_pipes() as pipes:
+        target_year = pipes.get_extra("target_year")
+        target_month = pipes.get_extra("target_month")
+        branch_name = pipes.get_extra("branch_name")
+        
+        spark = SparkSession.builder.appName("spark_job").getOrCreate()
+        process(spark, pipes.log, target_year, target_month, branch_name)
+        spark.stop()
