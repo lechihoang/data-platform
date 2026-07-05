@@ -1,89 +1,71 @@
-# Hướng dẫn thiết kế NiFi Flow (Data Ingestion)
+# Hướng dẫn thiết kế NiFi Flow (Phiên bản Đơn giản - 1 DAG)
 
-Tài liệu này ghi chú lại cách thiết kế luồng (Flow) tải dữ liệu trên Apache NiFi. 
-Mục tiêu là xây dựng một Data Pipeline chuẩn Data Engineering, có khả năng tự động Scale-up để tải hàng trăm file song song thay vì phải tạo thủ công từng link một (Hardcode).
+Tài liệu này hướng dẫn cách thiết lập một luồng (Flow/DAG) duy nhất, tối giản trên NiFi để tải đúng 2 file:
+1. Dữ liệu chuyến đi tháng 01/2024 (`yellow_tripdata_2024-01.parquet`)
+2. Dữ liệu khu vực (`taxi_zone_lookup.csv`)
 
-## 1. Kiến trúc Fan-out (Dynamic Scaling)
+Vì không cần tải hàng loạt nhiều tháng, ta bỏ qua kiến trúc Fan-out (không cần code Python) và gắn trực tiếp (hardcode) URL để Flow ngắn gọn, dễ cấu hình nhất.
 
-Thay vì thiết lập URL tĩnh trong processor `InvokeHTTP`, chúng ta sử dụng thiết kế **Fan-out**:
-Sinh ra một danh sách các biến (tháng/năm) -> Cắt danh sách thành nhiều luồng nhỏ -> Gắn URL tự động cho từng luồng -> Tải file song song.
+## 1. Cấu hình bảo mật AWS (Làm trước tiên)
 
-### Cấu trúc các Processor:
-`ExecuteScript` ➡️ `UpdateAttribute` ➡️ `InvokeHTTP` ➡️ `PutS3Object`
+Bạn vẫn nên dùng Controller Service để NiFi đọc thông tin kết nối MinIO từ file `.env`, tránh việc phải gõ Access Key thủ công:
 
-### Bước 1: Sinh danh sách tháng động (ExecuteScript)
-- **Nhiệm vụ:** Thay vì phải kéo 3 Node rườm rà (Tạo Text -> Cắt dòng -> Trích xuất biến), vì bạn đã là Data Engineer rành code, chúng ta dùng đúng 1 Node chạy mã Python để "đẻ" ra 10 FlowFile chứa sẵn biến `month`.
-- **Cấu hình (Properties):**
-  - `Script Engine`: `python`
-  - `Script Body`: Copy và dán đoạn code Python cực kỳ quen thuộc này vào:
-    ```python
-    # Chỉ cần sửa 3 biến này khi muốn tải thời gian khác
-    year = 2024
-    start_month = 1
-    end_month = 6
-    
-    for i in range(start_month, end_month + 1):
-        m = "%d-%02d" % (year, i)
-        ff = session.create() # Đẻ ra 1 FlowFile
-        ff = session.putAttribute(ff, "month", m) # Gắn biến month (ví dụ: 2024-01)
-        session.transfer(ff, REL_SUCCESS) # Chuyển đi
-    ```
-- **Lưu ý:** Node này cũng chỉ nên chạy 1 lần. Hãy chuột phải và chọn **Run Once** khi cần kích hoạt.
-
-### Bước 2: Tạo URL động (UpdateAttribute)
-- **Nhiệm vụ:** Sử dụng biến `month` vừa lấy được để động hóa URL và tên file.
-- **Cấu hình (Properties):**
-  - Nhấn nút `+` (Add Property):
-    - `download_url` = `https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_${month}.parquet`
-    - `filename` = `yellow_tripdata_${month}.parquet`
-
-### Bước 3: Gọi API Tải File (InvokeHTTP)
-- **Nhiệm vụ:** Tải file thực tế từ Internet.
-- **Cấu hình (Properties):**
-  - `HTTP URL`: `${download_url}` (Nó sẽ tự động điền URL tương ứng cho từng file).
-  - `HTTP Method`: `GET`
-
-### Bước 4: Đẩy vào Data Lakehouse (PutS3Object)
-- **Nhiệm vụ:** Tải file Parquet vào hệ thống MinIO lưu trữ của dự án.
-- **Cấu hình (Properties):**
-  - `Object Key`: `bronze/${filename}`
-  - `Bucket`: `lakehouse`
+1. Chuột phải ra vùng trống trên Canvas -> Chọn **Configure** -> Tab **Controller Services**.
+2. Thêm mới service: **`AWSCredentialsProviderControllerService`**.
+3. Edit (⚙️) -> Properties: 
+   - **`Access Key ID`**: `admin`
+   - **`Secret Access Key`**: `admin123`
+4. Bấm Apply và bật biểu tượng tia sét ⚡ (Enable).
 
 ---
 
-## 3. Quản lý Mật khẩu bảo mật (Không Hardcode AWS Key)
+## 2. Thiết kế Luồng (DAG) - Kiến trúc Enterprise (Configuration-Driven)
 
-Trong NiFi Registry, vì lý do bảo mật, các thuộc tính nhạy cảm như `Access Key` và `Secret Key` sẽ không được lưu vào kho chứa (sẽ bị xóa trắng khi tải sang máy khác).
-Thay vì gõ cứng mật khẩu vào `PutS3Object`, chúng ta sẽ cấu hình để NiFi tự đọc mật khẩu từ file `.env` của hệ thống Docker.
+Với kiến trúc này, toàn bộ link API và cấu hình được lưu ở file ngoài. NiFi chỉ làm nhiệm vụ Động cơ xử lý. Rất dễ mở rộng sau này.
 
-**Cách thực hiện:**
-1. Chuột phải ra vùng trống trên Canvas -> Chọn **Configure** -> Chuyển sang tab **Controller Services**.
-2. Bấm nút `+` và thêm service tên là: **`AWSCredentialsProviderControllerService`**.
-3. Bấm vào icon ⚙️ (Edit), chuyển qua tab **Properties**.
-4. Sửa property **`Use Default Credentials`** thành **`true`**.
-5. Bấm `Apply`, sau đó bật icon tia sét ⚡ (Enable).
-6. Quay trở lại processor `PutS3Object`, bỏ trống các ô Access Key/Secret Key. Tại mục **`AWS Credentials Provider service`**, chọn service vừa tạo ở trên.
+### Bước 1: Chuẩn bị file cấu hình JSON
+File cấu hình đã được tạo sẵn tại `infra/nifi/config/ingestion_sources.json` và đã được mount vào NiFi tại thư mục `/opt/nifi/nifi-current/config_data/ingestion_sources.json`.
+File này chứa một mảng JSON với thông tin: `url`, `bucket`, và `object_key` của từng file.
 
-Với thiết lập này, NiFi sẽ tự động bắt các biến môi trường (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) từ file `.env` do Docker cung cấp. Bạn sẽ không bao giờ phải gõ lại mật khẩu khi import luồng sang hệ thống mới.
+### Bước 2: Kéo thả và Cấu hình 6 Hộp (Processors)
 
----
+1. **`GenerateFlowFile`** (Bộ lập lịch - Trigger):
+   - Cấu hình (Properties) -> `Custom Text`: Tùy ý (gõ "start" hoặc để trống).
+   - Thêm 2 thuộc tính (Bấm dấu `+` ở góc trên bên phải):
+     - Property Name: `absolute.path` -> Value: `/opt/nifi/nifi-current/config_data/`
+     - Property Name: `filename` -> Value: `ingestion_sources.json`
+   - Tab **Scheduling** -> Cứ để mặc định là `Timer driven`. Khi nào cần chạy, bạn chỉ cần ra ngoài màn hình, **click chuột phải vào hộp này và chọn Run Once**.
+   - Nối dây `success` sang hộp số 2.
 
-## 4. Tải file Taxi Zone Lookup (Dữ liệu Dimension)
+2. **`FetchFile`** (Đọc file cấu hình):
+   - Cấu hình (Properties) -> `File to Fetch`: Cứ để nguyên mặc định là `${absolute.path}/${filename}` (Nó sẽ tự động nhận giá trị từ hộp số 1 truyền sang).
+   - `Completion Strategy`: `None` (Quan trọng: Không xóa file).
+   - Nối dây `success` sang hộp số 3.
 
-Trong bài toán NYC Taxi, ngoài dữ liệu chuyến đi (Trips), bạn bắt buộc phải tải thêm file danh mục các khu vực (Zone Lookup) để sau này dùng PySpark join dữ liệu.
+3. **`SplitJSON`** (Tách danh sách thành nhiều luồng):
+   - Cấu hình (Properties) -> `JsonPath Expression`: `$.*` (Tách mảng JSON thành từng object riêng lẻ).
+   - Nối dây `split` sang hộp số 4. Các dây `original`, `failure` cấu hình Auto-terminate (Tích vào cột `terminate`).
 
-Vì file này tĩnh (chỉ có 1 file duy nhất), bạn không cần dùng thiết kế Fan-out như trên. Hãy tạo một nhánh nhỏ, đơn giản ngay cạnh luồng chính:
+4. **`EvaluateJsonPath`** (Rút trích URL và S3 Key):
+   - Cấu hình (Properties) -> `Destination`: `flowfile-attribute` (Lưu thành biến).
+   - Thêm Property mới (Dấu +): 
+     - Tên: `api_url` -> Value: `$.url`
+     - Tên: `s3.bucket` -> Value: `$.bucket`
+     - Tên: `filename` -> Value: `$.object_key`
+   - Nối dây `matched` sang hộp số 5. Dây `unmatched`, `failure` cấu hình Auto-terminate.
 
-### Cấu trúc nhánh con:
-`GenerateFlowFile` ➡️ `InvokeHTTP` ➡️ `PutS3Object`
-
-### Cấu hình chi tiết:
-1. **GenerateFlowFile**: 
-   - Không cần Custom Text, chỉ dùng để kích hoạt chạy 1 lần.
-2. **InvokeHTTP**:
-   - `HTTP URL`: `https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv`
+5. **`InvokeHTTP`** (Gọi API kéo Data):
+   - Cấu hình (Properties) -> `HTTP URL`: `${api_url}`
    - `HTTP Method`: `GET`
-3. **PutS3Object**:
-   - `Object Key`: `taxi_zone_lookup.csv`
-   - `Bucket`: Tên bucket của bạn (ví dụ: `raw-data`)
-   - `AWS Credentials Provider service`: Chọn lại đúng cái Service đã tạo ở Phần 3 để khỏi phải nhập Key.
+   - Nối dây `Response` sang hộp số 6. Các dây còn lại Auto-terminate.
+
+6. **`PutS3Object`** (Lưu vào MinIO):
+   - Cấu hình (Properties) -> `Object Key`: Cứ để mặc định là `${filename}`
+   - `Bucket`: Điền `${s3.bucket}`
+   - `AWS Credentials Provider service`: Chọn service đã tạo ở phần 1.
+   - `Endpoint Override URL`: `http://minio:9000` (Quan trọng để trỏ về MinIO thay vì AWS thật)
+   - `Signer Override`: `AWSS3V4SignerType`
+   - Auto-terminate: Tích cột `terminate` cho `success` và `failure`.
+
+---
+**Tóm tắt:** Bất cứ khi nào bạn muốn kéo thêm API mới, bạn chỉ cần mở file `ingestion_sources.json` thêm 1 dòng. Đến đúng giờ (Cron), NiFi sẽ tự động đọc file và tạo ra ngần ấy luồng tải song song!

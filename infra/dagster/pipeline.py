@@ -25,8 +25,8 @@ def build_spark_cmd(script_name):
     return [
         "spark-submit",
         "--conf", "spark.driver.memory=1g",
-        "--conf", "spark.executor.memory=2g",
-        "--conf", "spark.executor.cores=2",
+        "--conf", "spark.executor.memory=1g",
+        "--conf", "spark.executor.cores=1",
         "--conf", "spark.driver.host=dagster",
         "--conf", "spark.driver.extraJavaOptions=-Duser.dir=/tmp",
         file_relative_path(__file__, f"spark_scripts/{script_name}")

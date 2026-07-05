@@ -15,9 +15,8 @@ def process(spark, pipes, branch_name: str):
     
     pipes.report_asset_materialization(
         metadata={
-            "merged_branch": branch_name,
-            "target_branch": "main",
-            "execution_location": "Spark Cluster"
+            "MERGED BRANCH": branch_name,
+            "TARGET BRANCH": "main"
         }
     )
 

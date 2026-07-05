@@ -139,19 +139,6 @@ services:
     depends_on:
       - spark-master
 
-  nifi-registry:
-    build:
-      context: ./infra/nifi
-      dockerfile: Dockerfile.registry
-    container_name: nifi-registry
-    ports:
-      - "18081:18080"
-    volumes:
-      - ./infra/nifi/registry_db:/opt/nifi-registry/nifi-registry-current/database
-      - ./infra/nifi/flow:/opt/nifi-registry/nifi-registry-current/flow_storage
-    networks:
-      - lakehouse
-
   nifi:
     build:
       context: ./infra/nifi
@@ -165,6 +152,8 @@ services:
       - nifi_content:/opt/nifi/nifi-current/content_repository
       - nifi_provenance:/opt/nifi/nifi-current/provenance_repository
       - nifi_conf:/opt/nifi/nifi-current/conf
+      - ./infra/nifi/config:/opt/nifi/nifi-current/config_data
+      - ./infra/nifi/config/ingestion_sources.json:/opt/nifi/nifi-current/conf/ingestion_sources.json
     environment:
       NIFI_JVM_HEAP_INIT: "2g"
       NIFI_JVM_HEAP_MAX: "2g"
@@ -173,11 +162,27 @@ services:
       SINGLE_USER_CREDENTIALS_USERNAME: ${NIFI_SINGLE_USER_CREDENTIALS_USERNAME}
       SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_SINGLE_USER_CREDENTIALS_PASSWORD}
       NIFI_SENSITIVE_PROPS_KEY: '+U4kMHG1yNwZoPgSxRVpLoRKPTaeLGa/'
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
     networks:
       - lakehouse
     depends_on:
       - minio
-      - nifi-registry
+
+  nifi-registry:
+    build:
+      context: ./infra/nifi
+      dockerfile: Dockerfile.registry
+    container_name: nifi-registry
+    ports:
+      - "18081:18080"
+    volumes:
+      - ./infra/nifi/registry_database:/opt/nifi-registry/nifi-registry-current/database
+      - ./infra/nifi/registry_flow_storage:/opt/nifi-registry/nifi-registry-current/flow_storage
+    environment:
+      NIFI_REGISTRY_WEB_HTTP_PORT: 18080
+    networks:
+      - lakehouse
 
   dagster:
     build:

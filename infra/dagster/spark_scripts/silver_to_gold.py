@@ -6,8 +6,6 @@ from pyspark.sql import SparkSession, functions as F
 import datetime
 
 
-
-
 def write_gold_table(spark, df, table_name, target_year, target_month):
     df.write \
         .format("iceberg") \
@@ -123,9 +121,8 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     
     pipes.report_asset_materialization(
         metadata={
-            "branch_name": branch_name,
-            "target_period": f"{target_year}-{target_month:02d}",
-            "execution_location": "Spark Cluster"
+            "BRANCH NAME": branch_name,
+            "TARGET PERIOD": f"{target_year}-{target_month:02d}"
         }
     )
 

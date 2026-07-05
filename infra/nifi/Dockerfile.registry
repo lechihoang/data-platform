@@ -1,13 +1,1 @@
 FROM apache/nifi-registry:2.0.0
-
-USER root
-
-# Pre-create the directories and assign ownership to the nifi user.
-# This ensures that when Docker Compose creates named volumes for these paths,
-# it will inherit the nifi user's ownership instead of defaulting to root.
-RUN mkdir -p /opt/nifi-registry/nifi-registry-current/database \
-             /opt/nifi-registry/nifi-registry-current/flow_storage && \
-    chown -R nifi:nifi /opt/nifi-registry/nifi-registry-current/database \
-                       /opt/nifi-registry/nifi-registry-current/flow_storage
-
-USER nifi

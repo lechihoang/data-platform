@@ -1,0 +1,14 @@
+[
+  {
+    "id": "taxi_data_2024_01",
+    "url": "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet",
+    "bucket": "lakehouse",
+    "object_key": "bronze/yellow_tripdata_2024-01.parquet"
+  },
+  {
+    "id": "taxi_zone_lookup",
+    "url": "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv",
+    "bucket": "lakehouse",
+    "object_key": "bronze/taxi_zone_lookup.csv"
+  }
+]

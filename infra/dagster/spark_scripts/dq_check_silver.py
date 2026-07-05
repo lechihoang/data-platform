@@ -53,10 +53,9 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     
     pipes.report_asset_materialization(
         metadata={
-            "branch_name": branch_name,
-            "target_period": f"{target_year}-{target_month:02d}",
-            "execution_location": "Spark Cluster",
-            "dq_status": "PASSED"
+            "BRANCH NAME": branch_name,
+            "TARGET PERIOD": f"{target_year}-{target_month:02d}",
+            "DATA QUALITY STATUS": "PASSED"
         }
     )
 

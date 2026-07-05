@@ -22,9 +22,9 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     # (khi Nessie repo còn trắng tinh, nhánh main chưa có commit nào) để ép Nessie 
     # sinh ra Initial Commit. Sau lần chạy đầu tiên, hãy comment lại toàn bộ phần này.
     # -------------------------------------------------------------------------
-    # logger.info("Initializing Nessie commit history with a transient dummy namespace")
-    # spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.dummy_init")
-    # spark.sql("DROP NAMESPACE IF EXISTS nessie.dummy_init")
+    logger.info("Initializing Nessie commit history with a transient dummy namespace")
+    spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.dummy_init")
+    spark.sql("DROP NAMESPACE IF EXISTS nessie.dummy_init")
     # -------------------------------------------------------------------------
     
     logger.info(f"Creating and checking out branch: {branch_name}")
@@ -113,10 +113,9 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     
     pipes.report_asset_materialization(
         metadata={
-            "branch_name": branch_name,
-            "processed_rows": final_row_count,
-            "target_period": f"{target_year}-{target_month:02d}",
-            "execution_location": "Spark Cluster"
+            "BRANCH NAME": branch_name,
+            "PROCESSED ROWS": final_row_count,
+            "TARGET PERIOD": f"{target_year}-{target_month:02d}"
         }
     )
 
