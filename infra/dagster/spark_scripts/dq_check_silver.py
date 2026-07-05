@@ -2,7 +2,8 @@ from dagster_pipes import open_dagster_pipes
 from pyspark.sql import SparkSession
 import great_expectations as gx
 
-def process(spark, logger, target_year: int, target_month: int, branch_name: str):
+def process(spark, pipes, target_year: int, target_month: int, branch_name: str):
+    logger = pipes.log
     def validate_table_with_ge(gx_context, df, table_name, expectations_list):
         data_source = gx_context.data_sources.add_spark(f"spark_source_{table_name}")
         data_asset = data_source.add_dataframe_asset(f"asset_{table_name}")
@@ -49,6 +50,15 @@ def process(spark, logger, target_year: int, target_month: int, branch_name: str
     ])
 
     logger.info("All Silver tables passed Great Expectations validation.")
+    
+    pipes.report_asset_materialization(
+        metadata={
+            "branch_name": branch_name,
+            "target_period": f"{target_year}-{target_month:02d}",
+            "execution_location": "Spark Cluster",
+            "dq_status": "PASSED"
+        }
+    )
 
 
 if __name__ == "__main__":
@@ -58,5 +68,5 @@ if __name__ == "__main__":
         branch_name = pipes.get_extra("branch_name")
         
         spark = SparkSession.builder.appName("spark_job").getOrCreate()
-        process(spark, pipes.log, target_year, target_month, branch_name)
+        process(spark, pipes, target_year, target_month, branch_name)
         spark.stop()

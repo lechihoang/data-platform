@@ -2,7 +2,8 @@ from dagster_pipes import open_dagster_pipes
 import logging
 from pyspark.sql import SparkSession
 
-def process(spark, logger, branch_name: str):
+def process(spark, pipes, branch_name: str):
+    logger = pipes.log
     logger.info(f"STARTING MERGE: {branch_name} -> main")
 
     # MERGE BRANCH tạo merge commit trên main, giữ đầy đủ lịch sử Nessie.
@@ -11,6 +12,14 @@ def process(spark, logger, branch_name: str):
     logger.info(f"Successfully merged {branch_name} into main")
 
     logger.info("MERGE completed successfully!")
+    
+    pipes.report_asset_materialization(
+        metadata={
+            "merged_branch": branch_name,
+            "target_branch": "main",
+            "execution_location": "Spark Cluster"
+        }
+    )
 
 
 if __name__ == "__main__":
@@ -18,4 +27,5 @@ if __name__ == "__main__":
         branch_name = pipes.get_extra("branch_name")
         
         spark = SparkSession.builder.appName("merge_branch").getOrCreate()
-        process(spark, pipes.log, branch_name)
+        process(spark, pipes, branch_name)
+        spark.stop()

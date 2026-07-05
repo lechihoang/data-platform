@@ -4,7 +4,8 @@ import logging
 import sys
 from pyspark.sql import SparkSession, functions as F
 
-def process(spark, logger, target_year: int, target_month: int, branch_name: str):
+def process(spark, pipes, target_year: int, target_month: int, branch_name: str):
+    logger = pipes.log
     
     logger.info(
         f"Spark app started: app_id={spark.sparkContext.applicationId}, eventLog.enabled={spark.conf.get('spark.eventLog.enabled')}, eventLog.dir={spark.conf.get('spark.eventLog.dir')}"
@@ -70,7 +71,8 @@ def process(spark, logger, target_year: int, target_month: int, branch_name: str
                    .filter(F.col("trip_duration_seconds") < 86400)
     )
     
-    logger.info(f"Row count after cleaning: {df_enriched.count()}")
+    final_row_count = df_enriched.count()
+    logger.info(f"Row count after cleaning: {final_row_count}")
     
 
     df_enriched.write \
@@ -108,6 +110,15 @@ def process(spark, logger, target_year: int, target_month: int, branch_name: str
     logger.info(f"To merge: spark.sql('ASSIGN BRANCH main TO {branch_name} IN nessie')")
     
     logger.info("BRONZE TO SILVER completed successfully!")
+    
+    pipes.report_asset_materialization(
+        metadata={
+            "branch_name": branch_name,
+            "processed_rows": final_row_count,
+            "target_period": f"{target_year}-{target_month:02d}",
+            "execution_location": "Spark Cluster"
+        }
+    )
 
 
 if __name__ == "__main__":
@@ -117,5 +128,5 @@ if __name__ == "__main__":
         branch_name = pipes.get_extra("branch_name")
         
         spark = SparkSession.builder.appName("spark_job").getOrCreate()
-        process(spark, pipes.log, target_year, target_month, branch_name)
+        process(spark, pipes, target_year, target_month, branch_name)
         spark.stop()

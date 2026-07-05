@@ -15,7 +15,8 @@ def write_gold_table(spark, df, table_name, target_year, target_month):
         .option("replace-where", f"Year = {target_year} AND Month = {target_month}") \
         .saveAsTable(table_name)
 
-def process(spark, logger, target_year: int, target_month: int, branch_name: str):
+def process(spark, pipes, target_year: int, target_month: int, branch_name: str):
+    logger = pipes.log
     
     logger.info(
         "Spark app started: app_id=%s, eventLog.enabled=%s, eventLog.dir=%s",
@@ -119,6 +120,14 @@ def process(spark, logger, target_year: int, target_month: int, branch_name: str
 
 
     logger.info("SILVER TO GOLD completed successfully!")
+    
+    pipes.report_asset_materialization(
+        metadata={
+            "branch_name": branch_name,
+            "target_period": f"{target_year}-{target_month:02d}",
+            "execution_location": "Spark Cluster"
+        }
+    )
 
 
 if __name__ == "__main__":
@@ -128,5 +137,5 @@ if __name__ == "__main__":
         branch_name = pipes.get_extra("branch_name")
         
         spark = SparkSession.builder.appName("spark_job").getOrCreate()
-        process(spark, pipes.log, target_year, target_month, branch_name)
+        process(spark, pipes, target_year, target_month, branch_name)
         spark.stop()
