@@ -1,5 +1,5 @@
 #!/bin/sh
-# Create lakehouse bucket by creating a directory
+# Create lakehouse bucket 
 mkdir -p /data/lakehouse
 
 # Start MinIO server with arguments passed from docker-compose

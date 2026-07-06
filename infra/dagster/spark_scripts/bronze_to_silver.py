@@ -17,12 +17,12 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     spark.sql("USE REFERENCE main IN nessie")
     
     # -------------------------------------------------------------------------
-    # LƯU Ý QUAN TRỌNG: 
-    # Chỉ mở comment 3 dòng code dưới đây trong LẦN CHẠY ĐẦU TIÊN của toàn bộ project 
-    # (khi Nessie repo còn trắng tinh, nhánh main chưa có commit nào) để ép Nessie 
-    # sinh ra Initial Commit. Sau lần chạy đầu tiên, hãy comment lại toàn bộ phần này.
+    # IMPORTANT NOTE: 
+    # Only uncomment the 3 lines of code below during the FIRST RUN of the entire project 
+    # (when the Nessie repo is completely empty, and the main branch has no commits yet) to force Nessie 
+    # to generate an Initial Commit. After the first run, please comment them out again.
     # -------------------------------------------------------------------------
-    logger.info("Initializing Nessie commit history with a transient dummy namespace")
+    logger.info("Initializing Nessie commit history")
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.dummy_init")
     spark.sql("DROP NAMESPACE IF EXISTS nessie.dummy_init")
     # -------------------------------------------------------------------------
