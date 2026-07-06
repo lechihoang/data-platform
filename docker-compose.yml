@@ -85,7 +85,7 @@ services:
       - spark-master
     environment:
       SPARK_WORKER_CORES: 2
-      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_MEMORY: 4g
       SPARK_WORKER_WEBUI_PORT: 8081
       SPARK_PUBLIC_DNS: localhost
       AWS_REGION: ${AWS_REGION}
@@ -168,21 +168,6 @@ services:
       - lakehouse
     depends_on:
       - minio
-
-  nifi-registry:
-    build:
-      context: ./infra/nifi
-      dockerfile: Dockerfile.registry
-    container_name: nifi-registry
-    ports:
-      - "18081:18080"
-    volumes:
-      - ./infra/nifi/registry_database:/opt/nifi-registry/nifi-registry-current/database
-      - ./infra/nifi/registry_flow_storage:/opt/nifi-registry/nifi-registry-current/flow_storage
-    environment:
-      NIFI_REGISTRY_WEB_HTTP_PORT: 18080
-    networks:
-      - lakehouse
 
   dagster:
     build:
