@@ -24,8 +24,8 @@ def get_run_context(context: AssetExecutionContext):
 def build_spark_cmd(script_name):
     return [
         "spark-submit",
-        "--conf", "spark.driver.memory=1g",
-        "--conf", "spark.executor.memory=1g",
+        "--conf", "spark.driver.memory=2g",
+        "--conf", "spark.executor.memory=4g",
         "--conf", "spark.executor.cores=1",
         "--conf", "spark.driver.host=dagster",
         "--conf", "spark.driver.extraJavaOptions=-Duser.dir=/tmp",

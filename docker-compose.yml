@@ -36,6 +36,10 @@ services:
       # Persist data with RocksDB backend
       NESSIE_VERSION_STORE_TYPE: ROCKSDB
       NESSIE_VERSION_STORE_PERSIST_ROCKS_DB_DATABASE_PATH: /var/lib/nessie/rocks
+      # Basic Auth
+      NESSIE_SERVER_AUTHENTICATION_ENABLED: "true"
+      QUARKUS_SECURITY_USERS_ADMIN_PASSWORD: ${NESSIE_ADMIN_PASSWORD}
+      QUARKUS_SECURITY_USERS_ADMIN_ROLES: "admin"
     volumes:
       - nessie_data:/var/lib/nessie
     networks:
@@ -63,6 +67,8 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       SPARK_DAEMON_JAVA_OPTS: "-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties"
+      SPARK_AUTHENTICATE: "true"
+      SPARK_AUTHENTICATE_SECRET: ${SPARK_RPC_SECRET}
     entrypoint: ["bash", "-c", "/opt/spark/sbin/start-master.sh && tail -f /dev/null"]
     volumes:
       - ./infra/spark/config:/opt/spark/conf
@@ -92,6 +98,8 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       SPARK_DAEMON_JAVA_OPTS: "-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties"
+      SPARK_AUTHENTICATE: "true"
+      SPARK_AUTHENTICATE_SECRET: ${SPARK_RPC_SECRET}
     entrypoint: ["bash", "-c", "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /dev/null"]
     volumes:
       - ./infra/spark/config:/opt/spark/conf
@@ -130,6 +138,9 @@ services:
       AWS_REGION: ${AWS_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      SPARK_AUTHENTICATE: "true"
+      SPARK_AUTHENTICATE_SECRET: ${SPARK_RPC_SECRET}
     volumes:
       - ./notebook:/opt/spark/work-dir/notebook
       - ./infra/spark/config:/opt/spark/conf
@@ -153,6 +164,7 @@ services:
       - nifi_provenance:/opt/nifi/nifi-current/provenance_repository
       - nifi_conf:/opt/nifi/nifi-current/conf
       - ./infra/nifi/config:/opt/nifi/nifi-current/config_data
+      - ./infra/nifi/flows:/opt/nifi/nifi-current/flows
       - ./infra/nifi/config/ingestion_sources.json:/opt/nifi/nifi-current/conf/ingestion_sources.json
     environment:
       NIFI_JVM_HEAP_INIT: "2g"
@@ -168,6 +180,27 @@ services:
       - lakehouse
     depends_on:
       - minio
+
+  trino:
+    build:
+      context: ./infra/trino
+      dockerfile: Dockerfile
+    container_name: trino
+    ports:
+      - "8085:8080"
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    networks:
+      - lakehouse
+    depends_on:
+      - nessie
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
 
   dagster:
     build:
@@ -187,6 +220,8 @@ services:
       AWS_REGION: ${AWS_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      SPARK_AUTHENTICATE: "true"
+      SPARK_AUTHENTICATE_SECRET: ${SPARK_RPC_SECRET}
 
       DAGSTER_HOME: /opt/dagster/dagster_home
       SPARK_CONF_DIR: /opt/spark/conf

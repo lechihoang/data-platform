@@ -4,6 +4,15 @@ import logging
 import sys
 from pyspark.sql import SparkSession, functions as F
 
+
+def write_partitioned_table(df, table_name, partition_cols):
+    writer = df.writeTo(table_name).tableProperty("write.distribution-mode", "hash")
+    if df.sparkSession.catalog.tableExists(table_name):
+        writer.overwritePartitions()
+    else:
+        writer.partitionedBy(*partition_cols).create()
+
+
 def process(spark, pipes, target_year: int, target_month: int, branch_name: str):
     logger = pipes.log
     
@@ -75,12 +84,8 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     logger.info(f"Row count after cleaning: {final_row_count}")
     
 
-    df_enriched.write \
-        .format("iceberg") \
-        .mode("overwrite") \
-        .option("replace-where", f"Year = {target_year} AND Month = {target_month}") \
-        .saveAsTable("nessie.silver.cleaned_trips")
-    
+    write_partitioned_table(df_enriched, "nessie.silver.cleaned_trips", ["Year", "Month"])
+
     logger.info("Saved data to nessie.silver.cleaned_trips")
 
     logger.info("Reading taxi zone lookup from bronze: s3a://lakehouse/bronze/taxi_zone_lookup.csv")
@@ -99,10 +104,7 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     )
     logger.info(f"Zone lookup row count: {df_zone.count()}")
 
-    df_zone.write \
-        .format("iceberg") \
-        .mode("overwrite") \
-        .saveAsTable("nessie.silver.dim_location")
+    df_zone.writeTo("nessie.silver.dim_location").createOrReplace()
 
     logger.info("Successfully wrote nessie.silver.dim_location")
     

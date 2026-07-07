@@ -6,12 +6,12 @@ from pyspark.sql import SparkSession, functions as F
 import datetime
 
 
-def write_gold_table(spark, df, table_name, target_year, target_month):
-    df.write \
-        .format("iceberg") \
-        .mode("overwrite") \
-        .option("replace-where", f"Year = {target_year} AND Month = {target_month}") \
-        .saveAsTable(table_name)
+def write_partitioned_table(df, table_name, partition_cols):
+    writer = df.writeTo(table_name).tableProperty("write.distribution-mode", "hash")
+    if df.sparkSession.catalog.tableExists(table_name):
+        writer.overwritePartitions()
+    else:
+        writer.partitionedBy(*partition_cols).create()
 
 def process(spark, pipes, target_year: int, target_month: int, branch_name: str):
     logger = pipes.log
@@ -105,16 +105,16 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     
 
     logger.info("Writing daily_trips to gold: nessie.gold.daily_trips")
-    write_gold_table(spark, daily_trips, "nessie.gold.daily_trips", target_year, target_month)
+    write_partitioned_table(daily_trips, "nessie.gold.daily_trips", ["Year", "Month"])
     
     logger.info("Writing monthly_summary to gold: nessie.gold.monthly_summary")
-    write_gold_table(spark, monthly_summary, "nessie.gold.monthly_summary", target_year, target_month)
+    write_partitioned_table(monthly_summary, "nessie.gold.monthly_summary", ["Year", "Month"])
     
     logger.info("Writing revenue_by_zone to gold: nessie.gold.revenue_by_zone")
-    write_gold_table(spark, revenue_by_zone, "nessie.gold.revenue_by_zone", target_year, target_month)
+    write_partitioned_table(revenue_by_zone, "nessie.gold.revenue_by_zone", ["Year", "Month"])
     
     logger.info("Writing payment_type_summary to gold: nessie.gold.payment_type_summary")
-    write_gold_table(spark, payment_type_summary, "nessie.gold.payment_type_summary", target_year, target_month)
+    write_partitioned_table(payment_type_summary, "nessie.gold.payment_type_summary", ["Year", "Month"])
 
 
     logger.info("SILVER TO GOLD completed successfully!")

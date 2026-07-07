@@ -12,6 +12,7 @@ Dự án này xây dựng một hệ thống Data Lakehouse hoàn chỉnh để 
 - **Apache Iceberg**: Đóng vai trò là **Table Format**. Khi Spark ghi dữ liệu trở lại MinIO, nó sẽ ghi dưới định dạng Iceberg, giúp dữ liệu có tính ACID (hỗ trợ update, delete, time-travel) giống như một database truyền thống trên nền tảng Data Lake.
 - **Project Nessie**: Đóng vai trò là **Data Catalog & Version Control**. Nessie quản lý metadata của Iceberg, cung cấp các tính năng quản lý phiên bản dữ liệu (branch, merge, rollback).
 - **Dagster**: Đóng vai trò là công cụ **Data Orchestration**. Dagster sẽ điều phối và quản lý toàn bộ pipeline ETL, theo dõi sự phụ thuộc giữa các tác vụ (assets/ops) và kích hoạt các job Spark chạy tự động.
+- **Trino**: Đóng vai trò là **Interactive Query Engine**. Trino kết nối trực tiếp tới Nessie catalog (branch `main`) để truy vấn SQL nhanh trên các bảng Iceberg ở tầng gold/silver, không cần khởi động Spark.
 
 ## 2. Data Flow
 
@@ -75,12 +76,19 @@ nyc-taxi-lakehouse/
 │   │   ├── Dockerfile.registry # Custom image sửa lỗi phân quyền Registry
 │   │   ├── registry_db/        # Database chứa metadata của Registry
 │   │   └── flow/               # Chứa file luồng (phiên bản) của dự án
-│   └── spark/
-│       ├── config/
-│       │   ├── log4j2.properties
-│       │   └── spark-defaults.conf
+│   ├── spark/
+│   │   ├── config/
+│   │   │   ├── log4j2.properties
+│   │   │   └── spark-defaults.conf
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
+│   └── trino/
+│       ├── catalog/
+│       │   └── nessie.properties
+│       ├── config.properties
 │       ├── Dockerfile
-│       └── requirements.txt
+│       ├── jvm.config
+│       └── node.properties
 ├── notebook/           # Chứa file Jupyter Notebook
 │   └── data_exploration.ipynb
 ├── docker-compose.yml  # Triển khai toàn bộ cụm
@@ -96,7 +104,9 @@ nyc-taxi-lakehouse/
 3. Khám phá kho lưu trữ **MinIO** tại `http://localhost:9001` (Tài khoản: admin / Mật khẩu: admin123).
 4. Truy cập **Jupyter Notebook** tại `http://localhost:8888` để chạy thử các file notebook thăm dò dữ liệu.
 5. Truy cập **Dagster** tại `http://localhost:3000` để chạy và theo dõi toàn bộ pipeline ETL.
-6. Các dịch vụ giám sát khác (Tùy chọn):
+6. Truy vấn dữ liệu nhanh bằng **Trino**: `docker exec -it trino trino --catalog nessie --schema gold`, sau đó chạy SQL trực tiếp (ví dụ `SELECT * FROM daily_trips LIMIT 5;`).
+7. Các dịch vụ giám sát khác (Tùy chọn):
    - **Spark Master UI**: `http://localhost:8080`
    - **Spark History Server**: `http://localhost:18080`
    - **Nessie Catalog API**: `http://localhost:19120`
+   - **Trino UI**: `http://localhost:8085`
