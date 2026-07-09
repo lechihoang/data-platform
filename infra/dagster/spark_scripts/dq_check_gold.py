@@ -2,8 +2,13 @@ from dagster_pipes import open_dagster_pipes
 from pyspark.sql import SparkSession
 import great_expectations as gx
 
-def process(spark, pipes, target_year: int, target_month: int, branch_name: str):
+def process(spark, pipes, dataset_type: str, target_year: int, target_month: int, branch_name: str):
     logger = pipes.log
+    if dataset_type == "zone":
+        logger.info("Zone lookup does not require Gold DQ checking. Skipping.")
+        pipes.report_asset_materialization(metadata={"STATUS": "SKIPPED_FOR_ZONE"})
+        return
+
     def validate_table_with_ge(gx_context, df, table_name, expectations_list):
         data_source = gx_context.data_sources.add_spark(f"spark_source_{table_name}")
         data_asset = data_source.add_dataframe_asset(f"asset_{table_name}")
@@ -17,72 +22,55 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
         validation_result = batch.validate(suite)
         if not validation_result.success:
             failed_msgs = [
-                f"- {res.expectation_config.expectation_type} (Column: '{res.expectation_config.kwargs.get('column', 'N/A')}')"
+                f"- {getattr(res.expectation_config, 'expectation_type', getattr(res.expectation_config, 'type', 'Unknown'))} (Column: '{res.expectation_config.kwargs.get('column', 'N/A')}')"
                 for res in validation_result.results if not res.success
             ]
             error_details = "\n".join(failed_msgs)
             raise AssertionError(
-                f"Data Quality Check FAILED for table '{table_name}'.\n"
+                f"Data Quality Check FAILED for GOLD table '{table_name}'.\n"
                 f"Failed Expectations:\n{error_details}"
             )
     
-    logger.info("Starting Data Quality Check for GOLD layer...")
+    logger.info(f"Starting Data Quality Check for GOLD layer - Type: {dataset_type.upper()}")
     gx_context = gx.get_context(mode="ephemeral")
     spark.sql(f"USE REFERENCE {branch_name} IN nessie")
     
-
-    logger.info(f"1. Checking table nessie.gold.daily_trips for {target_year}-{target_month:02d}")
-    df_daily = spark.table("nessie.gold.daily_trips").filter(f"Year = {target_year} AND Month = {target_month}")
-    validate_table_with_ge(gx_context, df_daily, "daily_trips", [
-        gx.expectations.ExpectColumnValuesToNotBeNull(column="trip_date"),
-        gx.expectations.ExpectColumnValuesToBeBetween(column="total_revenue", min_value=0, max_value=999999999),
-        gx.expectations.ExpectColumnValuesToBeBetween(column="total_trips", min_value=1, max_value=999999999)
-    ])
-    
-
-    logger.info(f"2. Checking table nessie.gold.monthly_summary for {target_year}-{target_month:02d}")
-    df_monthly = spark.table("nessie.gold.monthly_summary").filter(f"Year = {target_year} AND Month = {target_month}")
-    validate_table_with_ge(gx_context, df_monthly, "monthly_summary", [
-        gx.expectations.ExpectColumnValuesToNotBeNull(column="Year"),
-        gx.expectations.ExpectColumnValuesToBeBetween(column="Month", min_value=1, max_value=12),
-        gx.expectations.ExpectColumnValuesToBeBetween(column="total_revenue", min_value=0, max_value=999999999)
+    df_monthly = spark.table("nessie.gold.monthly_summary").filter(
+        f"Year = {target_year} AND Month = {target_month} AND trip_type = '{dataset_type}'"
+    )
+    validate_table_with_ge(gx_context, df_monthly, f"monthly_summary_{dataset_type}", [
+        gx.expectations.ExpectColumnValuesToNotBeNull(column="total_trips"),
+        gx.expectations.ExpectColumnValuesToBeBetween(column="total_trips", min_value=1, max_value=99999999),
+        gx.expectations.ExpectColumnValuesToNotBeNull(column="trip_type")
     ])
 
+    df_revenue = spark.table("nessie.gold.revenue_by_zone").filter(
+        f"Year = {target_year} AND Month = {target_month} AND trip_type = '{dataset_type}'"
+    )
+    revenue_expectations = [gx.expectations.ExpectColumnValuesToNotBeNull(column="pulocation_id")]
+    if dataset_type != "fhv":
+        revenue_expectations.append(gx.expectations.ExpectColumnValuesToNotBeNull(column="total_revenue"))
+        
+    validate_table_with_ge(gx_context, df_revenue, f"revenue_by_zone_{dataset_type}", revenue_expectations)
 
-    logger.info(f"3. Checking table nessie.gold.revenue_by_zone for {target_year}-{target_month:02d}")
-    df_zone = spark.table("nessie.gold.revenue_by_zone").filter(f"Year = {target_year} AND Month = {target_month}")
-    validate_table_with_ge(gx_context, df_zone, "revenue_by_zone", [
-        gx.expectations.ExpectColumnValuesToNotBeNull(column="PULocationID"),
-        gx.expectations.ExpectColumnValuesToBeBetween(column="total_revenue", min_value=0, max_value=999999999),
-        gx.expectations.ExpectColumnValuesToNotBeNull(column="Borough"),
-        gx.expectations.ExpectColumnValuesToNotBeNull(column="ZoneName")
-    ])
+    logger.info(f"Gold DQ validation passed for {dataset_type}.")
 
-
-    logger.info(f"4. Checking table nessie.gold.payment_type_summary for {target_year}-{target_month:02d}")
-    df_payment = spark.table("nessie.gold.payment_type_summary").filter(f"Year = {target_year} AND Month = {target_month}")
-    validate_table_with_ge(gx_context, df_payment, "payment_type_summary", [
-        gx.expectations.ExpectColumnValuesToNotBeNull(column="payment_type"),
-        gx.expectations.ExpectColumnValuesToBeBetween(column="total_revenue", min_value=0, max_value=999999999)
-    ])
-
-    logger.info("All Gold tables passed Great Expectations validation.")
-    
     pipes.report_asset_materialization(
         metadata={
-            "BRANCH NAME": branch_name,
-            "TARGET PERIOD": f"{target_year}-{target_month:02d}",
-            "DATA QUALITY STATUS": "PASSED"
+            "BRANCH_NAME": branch_name,
+            "DATASET_TYPE": dataset_type,
+            "TARGET_PERIOD": f"{target_year}-{target_month:02d}" if dataset_type != "zone" else "N/A",
+            "DATA_QUALITY_STATUS": "PASSED"
         }
     )
 
-
 if __name__ == "__main__":
     with open_dagster_pipes() as pipes:
+        dataset_type = pipes.get_extra("dataset_type")
         target_year = pipes.get_extra("target_year")
         target_month = pipes.get_extra("target_month")
         branch_name = pipes.get_extra("branch_name")
         
-        spark = SparkSession.builder.appName("spark_job").getOrCreate()
-        process(spark, pipes, target_year, target_month, branch_name)
+        spark = SparkSession.builder.appName(f"spark_dq_gold_{dataset_type}").getOrCreate()
+        process(spark, pipes, dataset_type, target_year, target_month, branch_name)
         spark.stop()

@@ -20,7 +20,6 @@ def process(spark, pipes, branch_name: str):
         }
     )
 
-
 if __name__ == "__main__":
     with open_dagster_pipes() as pipes:
         branch_name = pipes.get_extra("branch_name")

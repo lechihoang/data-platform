@@ -1,10 +1,7 @@
 from dagster_pipes import open_dagster_pipes
-import time
 import logging
 import sys
 from pyspark.sql import SparkSession, functions as F
-import datetime
-
 
 def write_partitioned_table(df, table_name, partition_cols):
     writer = df.writeTo(table_name).tableProperty("write.distribution-mode", "hash")
@@ -13,126 +10,114 @@ def write_partitioned_table(df, table_name, partition_cols):
     else:
         writer.partitionedBy(*partition_cols).create()
 
-def process(spark, pipes, target_year: int, target_month: int, branch_name: str):
+def process(spark, pipes, dataset_type: str, target_year: int, target_month: int, branch_name: str):
     logger = pipes.log
+    if dataset_type == "zone":
+        logger.info("Zone lookup does not require aggregation to Gold. Skipping.")
+        pipes.report_asset_materialization(metadata={"STATUS": "SKIPPED_FOR_ZONE"})
+        return
+
+    logger.info(f"STARTING SILVER TO GOLD FOR {dataset_type.upper()} (Branch: {branch_name})")
     
-    logger.info(
-        "Spark app started: app_id=%s, eventLog.enabled=%s, eventLog.dir=%s",
-        spark.sparkContext.applicationId,
-        spark.conf.get("spark.eventLog.enabled"),
-        spark.conf.get("spark.eventLog.dir"),
-    )
-    
-    logger.info(f"STARTING SILVER TO GOLD (Branch: {branch_name}, Partition: {target_year}-{target_month:02d})")
-    
-    logger.info(f"Checkout branch: {branch_name}")
     spark.sql(f"USE REFERENCE {branch_name} IN nessie")
-    
-    logger.info("Creating namespace: nessie.gold")
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.gold")
     
-    
-    logger.info("Reading from silver: nessie.silver.cleaned_trips")
-    df = spark.table("nessie.silver.cleaned_trips").filter((F.col("Year") == target_year) & (F.col("Month") == target_month))
-    logger.info(f"Silver row count: {df.count()}")
+    # Filter exactly for the dataset_type being requested
+    df = spark.table("nessie.silver.trips").filter(
+        (F.col("Year") == target_year) & 
+        (F.col("Month") == target_month) & 
+        (F.col("trip_type") == dataset_type)
+    )
+    logger.info(f"Silver row count for {dataset_type}: {df.count()}")
     
     daily_trips = (
-        df.groupBy("Year", "Month", "trip_date")
+        df.groupBy("Year", "Month", "trip_date", "trip_type")
           .agg(
               F.count("*").alias("total_trips"),
               F.sum("trip_distance").alias("total_distance"),
               F.sum("total_amount").alias("total_revenue"),
-              F.avg("passenger_count").alias("avg_passengers"),
-              F.avg("trip_duration_seconds").alias("avg_trip_duration_seconds"),
-              F.avg("tip_percentage").alias("avg_tip_percentage")
-          )
-    )
-    logger.info("Created daily_trips aggregate")
-    
-
-    
-    monthly_summary = (
-        df.groupBy("Year", "Month")
-          .agg(
-              F.count("*").alias("total_trips"),
-              F.sum("trip_distance").alias("total_distance"),
-              F.sum("total_amount").alias("total_revenue"),
-              F.avg("passenger_count").alias("avg_passengers"),
               F.avg("trip_duration_seconds").alias("avg_trip_duration_seconds")
           )
     )
-    logger.info("Created monthly_summary aggregate")
+    
+    monthly_summary = (
+        df.groupBy("Year", "Month", "trip_type")
+          .agg(
+              F.count("*").alias("total_trips"),
+              F.sum("trip_distance").alias("total_distance"),
+              F.sum("total_amount").alias("total_revenue"),
+              F.avg("trip_duration_seconds").alias("avg_trip_duration_seconds")
+          )
+    )
     
     df_zone = spark.table("nessie.silver.dim_location")
-    
     revenue_by_zone_raw = (
-        df.groupBy("Year", "Month", "PULocationID")
+        df.groupBy("Year", "Month", "trip_type", "pulocation_id")
           .agg(
               F.count("*").alias("total_trips"),
               F.sum("total_amount").alias("total_revenue"),
-              F.avg("trip_distance").alias("avg_trip_distance")
+              F.sum("tip_amount").alias("total_tip"),
+              F.sum("fare_amount").alias("total_fare"),
+              F.avg("fare_amount").alias("avg_fare"),
+              F.avg("tip_amount").alias("avg_tip")
           )
     )
     
     revenue_by_zone = (
         revenue_by_zone_raw.join(
             df_zone, 
-            revenue_by_zone_raw.PULocationID == df_zone.LocationID, 
+            revenue_by_zone_raw.pulocation_id == df_zone.LocationID, 
             "left"
         )
         .select(
-            "Year", "Month",
-            "PULocationID", 
+            "Year", "Month", "trip_type",
+            "pulocation_id", 
             F.col("Zone").alias("ZoneName"), 
             "Borough", 
             "total_trips", 
-            "total_revenue", 
-            "avg_trip_distance"
+            "total_revenue",
+            'avg_fare',
+            'avg_tip',
+            F.when(F.col("total_fare") == 0, 0).otherwise((F.col("total_tip") / F.col("total_fare")) * 100).alias("tip_percentage")
         )
         .orderBy(F.desc("total_revenue"))
     )
-    logger.info("Created revenue_by_zone aggregate with Zone Names")
     
+    # ---------------------------------------------------------
+    # Aggregation 4: Payment Type Summary
+    # ---------------------------------------------------------
     payment_type_summary = (
-        df.groupBy("Year", "Month", F.col("payment_type_name").alias("payment_type"))
+        df.filter(F.col("payment_type").isNotNull())
+          .groupBy("Year", "Month", "trip_type", "payment_type")
           .agg(
               F.count("*").alias("total_trips"),
               F.sum("total_amount").alias("total_revenue"),
-              F.avg("tip_percentage").alias("avg_tip_percentage")
+              F.sum("tip_amount").alias("total_tips")
           )
     )
-    logger.info("Created payment_type_summary aggregate using mapped names from Silver")
     
-
-    logger.info("Writing daily_trips to gold: nessie.gold.daily_trips")
-    write_partitioned_table(daily_trips, "nessie.gold.daily_trips", ["Year", "Month"])
+    write_partitioned_table(daily_trips, "nessie.gold.daily_trips", ["Year", "Month", "trip_type"])
+    write_partitioned_table(monthly_summary, "nessie.gold.monthly_summary", ["Year", "Month", "trip_type"])
+    write_partitioned_table(revenue_by_zone, "nessie.gold.revenue_by_zone", ["Year", "Month", "trip_type"])
+    write_partitioned_table(payment_type_summary, "nessie.gold.payment_type_summary", ["Year", "Month", "trip_type"])
     
-    logger.info("Writing monthly_summary to gold: nessie.gold.monthly_summary")
-    write_partitioned_table(monthly_summary, "nessie.gold.monthly_summary", ["Year", "Month"])
-    
-    logger.info("Writing revenue_by_zone to gold: nessie.gold.revenue_by_zone")
-    write_partitioned_table(revenue_by_zone, "nessie.gold.revenue_by_zone", ["Year", "Month"])
-    
-    logger.info("Writing payment_type_summary to gold: nessie.gold.payment_type_summary")
-    write_partitioned_table(payment_type_summary, "nessie.gold.payment_type_summary", ["Year", "Month"])
-
-
-    logger.info("SILVER TO GOLD completed successfully!")
+    logger.info(f"GOLD AGGREGATION completed for {dataset_type}!")
     
     pipes.report_asset_materialization(
         metadata={
-            "BRANCH NAME": branch_name,
-            "TARGET PERIOD": f"{target_year}-{target_month:02d}"
+            "BRANCH_NAME": branch_name,
+            "DATASET_TYPE": dataset_type,
+            "TARGET_PERIOD": f"{target_year}-{target_month:02d}"
         }
     )
 
-
 if __name__ == "__main__":
     with open_dagster_pipes() as pipes:
+        dataset_type = pipes.get_extra("dataset_type")
         target_year = pipes.get_extra("target_year")
         target_month = pipes.get_extra("target_month")
         branch_name = pipes.get_extra("branch_name")
         
-        spark = SparkSession.builder.appName("spark_job").getOrCreate()
-        process(spark, pipes, target_year, target_month, branch_name)
+        spark = SparkSession.builder.appName(f"spark_silver_to_gold_{dataset_type}").getOrCreate()
+        process(spark, pipes, dataset_type, target_year, target_month, branch_name)
         spark.stop()
