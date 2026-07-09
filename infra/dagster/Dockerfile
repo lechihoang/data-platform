@@ -19,6 +19,10 @@ WORKDIR /opt/dagster/app
 RUN mkdir -p /opt/dagster/dagster_home/storage && \
     chown -R 185:185 /opt/dagster/dagster_home
 
+# Khai báo định danh user vào /etc/passwd để Hadoop/Spark không bị lỗi NullPointerException
+RUN groupadd -g 185 dagster && \
+    useradd -u 185 -g 185 -m -s /bin/bash dagster
+
 # Ép Dagster chạy dưới user 185 (giống UID của Spark) để chung volume permission
 USER 185
 

@@ -36,10 +36,6 @@ services:
       # Persist data with RocksDB backend
       NESSIE_VERSION_STORE_TYPE: ROCKSDB
       NESSIE_VERSION_STORE_PERSIST_ROCKS_DB_DATABASE_PATH: /var/lib/nessie/rocks
-      # Basic Auth
-      NESSIE_SERVER_AUTHENTICATION_ENABLED: "true"
-      QUARKUS_SECURITY_USERS_ADMIN_PASSWORD: ${NESSIE_ADMIN_PASSWORD}
-      QUARKUS_SECURITY_USERS_ADMIN_ROLES: "admin"
     volumes:
       - nessie_data:/var/lib/nessie
     networks:
