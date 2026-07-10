@@ -135,7 +135,7 @@ Quá trình xử lý dữ liệu được chia làm 2 giai đoạn chính: **Bro
 #### 3.3. Kiểm tra chất lượng (Data Quality) và Hợp nhất (Merge)
 Toàn bộ quá trình chạy trên Dagster (Data Orchestration). Sau khi xử lý xong Bronze to Gold, hệ thống chạy Data Quality Checks bằng Great Expectations trên nhánh `etl_run_...`.
 - **Nếu FAIL (Có lỗi dữ liệu):** Pipeline dừng. Dữ liệu lỗi được cô lập trên nhánh phụ, không làm rác nhánh `main`.
-- **Nếu PASS (Đạt chuẩn):** Dagster gọi script `merge_branch.py` thực hiện lệnh Spark SQL `ASSIGN BRANCH main TO etl_run_...`. Dữ liệu sạch chính thức được phát hành (publish) lên nhánh `main` và sẵn sàng cung cấp cho người dùng cuối.
+- **Nếu PASS (Đạt chuẩn):** Dagster gọi script `merge_branch.py` thực hiện lệnh Spark SQL `MERGE BRANCH etl_run_... INTO main`. Lệnh này tạo merge commit trên `main`, giữ đầy đủ lịch sử Nessie (khác `ASSIGN BRANCH` chỉ dời con trỏ và có thể mất lịch sử khi chạy song song). Dữ liệu sạch chính thức được phát hành (publish) lên nhánh `main` và sẵn sàng cung cấp cho người dùng cuối.
 
 ## III. Kết quả
 

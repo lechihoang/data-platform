@@ -25,7 +25,7 @@ Dự án này xây dựng một hệ thống Data Lakehouse hoàn chỉnh để 
 3. **Spark** đọc raw data từ **MinIO**, transform & ghi **Iceberg** vào MinIO — ghi trên branch dev, chưa động tới `main`.
 4. **Spark** kiểm tra Data Quality bằng Great Expectations:
    - **FAIL** → ném lỗi, pipeline dừng. Dữ liệu xấu chỉ nằm trên branch dev, `main` vẫn sạch.
-   - **PASS** → Spark gọi `ASSIGN BRANCH main TO dev` để merge dev vào `main` trên Nessie.
+   - **PASS** → Spark gọi `MERGE BRANCH dev INTO main` để hợp nhất dev vào `main` trên Nessie (tạo merge commit, giữ đầy đủ lịch sử).
 5. Kết quả: chỉ dữ liệu đã pass test mới chính thức nằm trên `main`.
 
 
