@@ -16,20 +16,26 @@ from dagster import (
 monthly_partitions = MonthlyPartitionsDefinition(start_date="2024-01-01")
 
 def get_run_context(context: AssetExecutionContext, dtype: str):
-    start_time = context.partition_time_window.start
-    target_year = start_time.year
-    target_month = start_time.month
-    branch_name = f"etl_run_{dtype}_{target_year}_{target_month:02d}"
-    return target_year, target_month, branch_name
+    if dtype != "zone":
+        start_time = context.partition_time_window.start
+        target_year = start_time.year
+        target_month = start_time.month
+        branch_name = f"etl_run_{dtype}_{target_year}_{target_month:02d}"
+        return target_year, target_month, branch_name
+    else:
+        run_id = context.run_id[:8]
+        branch_name = f"etl_run_{dtype}_{run_id}"
+        return None, None, branch_name
 
-def build_spark_cmd(script_name):
+def build_spark_cmd(script_name, driver_memory="2g", executor_memory="3g"):
     return [
         "spark-submit",
-        "--conf", "spark.driver.memory=2g",
-        "--conf", "spark.executor.memory=4g",
+        "--conf", f"spark.driver.memory={driver_memory}",
+        "--conf", f"spark.executor.memory={executor_memory}",
         "--conf", "spark.executor.cores=1",
         "--conf", "spark.driver.host=dagster",
         "--conf", "spark.driver.extraJavaOptions=-Duser.dir=/tmp",
+        "--conf", "spark.sql.shuffle.partitions=400",
         file_relative_path(__file__, f"spark_scripts/{script_name}")
     ]
 
@@ -40,7 +46,7 @@ dataset_types = ["yellow", "green", "fhv", "hvfhv"]
 all_assets = []
 
 # 1. Zone Lookup
-@asset(partitions_def=monthly_partitions, name="silver_zone", description="Process Zone Lookup")
+@asset(name="silver_zone", description="Process Zone Lookup")
 def silver_zone(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
     target_year, target_month, branch_name = get_run_context(context, "zone")
     return pipes_subprocess_client.run(
@@ -49,7 +55,7 @@ def silver_zone(context: AssetExecutionContext, pipes_subprocess_client: PipesSu
         extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": "zone"}
     ).get_materialize_result()
 
-@asset(partitions_def=monthly_partitions, name="dq_check_silver_zone", deps=[silver_zone], description="DQ Check Zone")
+@asset(name="dq_check_silver_zone", deps=[silver_zone], description="DQ Check Zone")
 def dq_check_silver_zone(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
     target_year, target_month, branch_name = get_run_context(context, "zone")
     return pipes_subprocess_client.run(
@@ -58,16 +64,25 @@ def dq_check_silver_zone(context: AssetExecutionContext, pipes_subprocess_client
         extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": "zone"}
     ).get_materialize_result()
 
-@asset(partitions_def=monthly_partitions, name="merge_nessie_branch_zone", deps=[dq_check_silver_zone], description="Merge Zone Branch")
+@asset(name="gold_dimensions", deps=[dq_check_silver_zone], description="Build shared conformed dimensions (dim_location, dim_payment_type)")
+def gold_dimensions(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+    target_year, target_month, branch_name = get_run_context(context, "zone")
+    return pipes_subprocess_client.run(
+        command=build_spark_cmd("gold_dimensions.py", executor_memory="2g"),
+        context=context,
+        extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": "zone"}
+    ).get_materialize_result()
+
+@asset(name="merge_nessie_branch_zone", deps=[gold_dimensions], description="Merge Zone Branch")
 def merge_nessie_branch_zone(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
     target_year, target_month, branch_name = get_run_context(context, "zone")
     return pipes_subprocess_client.run(
-        command=build_spark_cmd("merge_branch.py"), 
+        command=build_spark_cmd("merge_branch.py"),
         context=context,
         extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name}
     ).get_materialize_result()
 
-all_assets.extend([silver_zone, dq_check_silver_zone, merge_nessie_branch_zone])
+all_assets.extend([silver_zone, dq_check_silver_zone, gold_dimensions, merge_nessie_branch_zone])
 
 # 2. Fact Trips
 def build_assets_for_type(dtype: str):
@@ -127,8 +142,7 @@ for t in dataset_types:
 # ---------------------------------------------------------
 zone_job = define_asset_job(
     name="zone_pipeline",
-    partitions_def=monthly_partitions,
-    selection=["silver_zone", "dq_check_silver_zone", "merge_nessie_branch_zone"]
+    selection=["silver_zone", "dq_check_silver_zone", "gold_dimensions", "merge_nessie_branch_zone"]
 )
 
 yellow_job = define_asset_job(

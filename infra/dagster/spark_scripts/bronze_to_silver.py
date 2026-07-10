@@ -135,7 +135,7 @@ class TripProcessor(AbstractProcessor):
     def write(self, df: DataFrame) -> None:
         table_name = "nessie.silver.trips"
         partition_cols = ["Year", "Month", "trip_type"]
-        writer = df.writeTo(table_name).tableProperty("write.distribution-mode", "hash")
+        writer = df.writeTo(table_name)
         
         if self.spark.catalog.tableExists(table_name):
             writer.overwritePartitions()
@@ -155,7 +155,8 @@ class YellowTripProcessor(TripProcessor):
             "tpep_pickup_datetime": "pickup_datetime",
             "tpep_dropoff_datetime": "dropoff_datetime",
             "PULocationID": "pulocation_id",
-            "DOLocationID": "dolocation_id"
+            "DOLocationID": "dolocation_id",
+            "Airport_fee": "airport_fee"
         }
         for src, tgt in mapping.items():
             if src in df.columns:
@@ -204,13 +205,14 @@ class HVFHVTripProcessor(TripProcessor):
         super().__init__(spark, logger, params, trip_type="hvfhv", file_prefix="fhvhv_tripdata")
 
     def standardize_schema(self, df: DataFrame) -> DataFrame:
-        # HVFHV has detailed fare fields that need to be aggregated into total_amount
-        df = df.withColumn("total_amount", 
-            F.coalesce(F.col("base_passenger_fare"), F.lit(0.0)) + 
-            F.coalesce(F.col("tolls"), F.lit(0.0)) + 
-            F.coalesce(F.col("bcf"), F.lit(0.0)) + 
-            F.coalesce(F.col("sales_tax"), F.lit(0.0)) + 
-            F.coalesce(F.col("congestion_surcharge"), F.lit(0.0)) + 
+        # HVFHV has detailed fare fields that need to be aggregated into total_amount.
+        # Note: fhvhv 2024-01 files have no `bcf` column but do have `airport_fee`.
+        df = df.withColumn("total_amount",
+            F.coalesce(F.col("base_passenger_fare"), F.lit(0.0)) +
+            F.coalesce(F.col("tolls"), F.lit(0.0)) +
+            F.coalesce(F.col("sales_tax"), F.lit(0.0)) +
+            F.coalesce(F.col("congestion_surcharge"), F.lit(0.0)) +
+            F.coalesce(F.col("airport_fee"), F.lit(0.0)) +
             F.coalesce(F.col("tips"), F.lit(0.0))
         )
         
@@ -222,7 +224,8 @@ class HVFHVTripProcessor(TripProcessor):
             "DOLocationID": "dolocation_id",
             "trip_miles": "trip_distance",
             "base_passenger_fare": "fare_amount",
-            "tips": "tip_amount"
+            "tips": "tip_amount",
+            "tolls": "tolls_amount"
         }
         for src, tgt in mapping.items():
             if src in df.columns:
