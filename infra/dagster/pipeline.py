@@ -3,28 +3,17 @@ import sys
 
 os.environ["HADOOP_USER_NAME"] = "dagster"
 
-from dagster import (
-    AssetExecutionContext,
-    Definitions,
-    MaterializeResult,
-    MonthlyPartitionsDefinition,
-    asset,
-    define_asset_job,
-    in_process_executor,
-)  # noqa: E402
+from dagster import (AssetExecutionContext, Definitions,  # noqa: E402
+                     MaterializeResult, MonthlyPartitionsDefinition, asset,
+                     define_asset_job, in_process_executor)
 from dagster_pyspark import PySparkResource  # noqa: E402
 
 # Add the current directory to sys.path so we can import spark_scripts as a module
 sys.path.append(os.path.dirname(__file__))
 
-from spark_scripts import (  # noqa: E402
-    bronze_to_silver,
-    dq_check_gold,
-    dq_check_silver,
-    gold_dimensions,
-    merge_branch,
-    silver_to_gold,
-)
+from spark_scripts import (bronze_to_silver, dq_check_gold,  # noqa: E402
+                           dq_check_silver, gold_dimensions, merge_branch,
+                           silver_to_gold)
 
 monthly_partitions = MonthlyPartitionsDefinition(start_date="2024-01-01")
 
