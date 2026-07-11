@@ -4,3 +4,4 @@ pyspark==4.0.0
 pyarrow>=11.0.0
 pandas
 great-expectations
+dagster-pyspark

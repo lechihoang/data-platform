@@ -1,17 +1,28 @@
 import sys
 import os
 os.environ["HADOOP_USER_NAME"] = "dagster"
+
 from typing import Dict
 from dagster import (
     MonthlyPartitionsDefinition,
     asset, 
     Definitions, 
     AssetExecutionContext, 
-    MaterializeResult,
     define_asset_job,
-    PipesSubprocessClient,
-    file_relative_path
+    MaterializeResult,
+    in_process_executor
 )
+from dagster_pyspark import PySparkResource
+
+# Add the current directory to sys.path so we can import spark_scripts as a module
+sys.path.append(os.path.dirname(__file__))
+
+from spark_scripts import bronze_to_silver
+from spark_scripts import dq_check_silver
+from spark_scripts import silver_to_gold
+from spark_scripts import dq_check_gold
+from spark_scripts import merge_branch
+from spark_scripts import gold_dimensions
 
 monthly_partitions = MonthlyPartitionsDefinition(start_date="2024-01-01")
 
@@ -27,112 +38,82 @@ def get_run_context(context: AssetExecutionContext, dtype: str):
         branch_name = f"etl_run_{dtype}_{run_id}"
         return None, None, branch_name
 
-def build_spark_cmd(script_name, driver_memory="2g", executor_memory="3g"):
-    return [
-        "spark-submit",
-        "--conf", f"spark.driver.memory={driver_memory}",
-        "--conf", f"spark.executor.memory={executor_memory}",
-        "--conf", "spark.executor.cores=4",
-        "--conf", "spark.sql.shuffle.partitions=10",
-        "--conf", "spark.driver.host=dagster",
-        "--conf", "spark.driver.extraJavaOptions=-Duser.dir=/tmp",
-        file_relative_path(__file__, f"spark_scripts/{script_name}")
-    ]
-
 # ---------------------------------------------------------
 # DYNAMIC ASSET GENERATION FOR EACH DATASET TYPE
 # ---------------------------------------------------------
 dataset_types = ["yellow", "green", "fhv", "hvfhv"]
 all_assets = []
 
-# 1. Zone Lookup
-@asset(name="silver_zone", description="Process Zone Lookup")
-def silver_zone(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+# ZONE
+@asset(name="silver_zone", description="Bronze to Silver for Zone")
+def silver_zone(context: AssetExecutionContext, pyspark: PySparkResource):
     target_year, target_month, branch_name = get_run_context(context, "zone")
-    return pipes_subprocess_client.run(
-        command=build_spark_cmd("bronze_to_silver.py"), 
-        context=context,
-        extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": "zone"}
-    ).get_materialize_result()
+    spark = pyspark.spark_session
+    metadata = bronze_to_silver.process(spark, context.log, "zone", target_year, target_month, branch_name, "silver_zone")
+    return MaterializeResult(metadata=metadata)
 
-@asset(name="dq_check_silver_zone", deps=[silver_zone], description="DQ Check Zone")
-def dq_check_silver_zone(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+@asset(name="dq_check_silver_zone", description="DQ Check Silver Zone", deps=[silver_zone])
+def dq_check_silver_zone(context: AssetExecutionContext, pyspark: PySparkResource):
     target_year, target_month, branch_name = get_run_context(context, "zone")
-    return pipes_subprocess_client.run(
-        command=build_spark_cmd("dq_check_silver.py"), 
-        context=context,
-        extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": "zone"}
-    ).get_materialize_result()
+    spark = pyspark.spark_session
+    metadata = dq_check_silver.process(spark, context.log, "zone", target_year, target_month, branch_name, "dq_check_silver_zone")
+    return MaterializeResult(metadata=metadata)
 
-@asset(name="gold_dimensions", deps=[dq_check_silver_zone], description="Build shared conformed dimensions (dim_location, dim_payment_type)")
-def gold_dimensions(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+@asset(name="gold_dimensions", description="Silver to Gold (Dimensions) for Zone", deps=[dq_check_silver_zone])
+def gold_dimensions(context: AssetExecutionContext, pyspark: PySparkResource):
     target_year, target_month, branch_name = get_run_context(context, "zone")
-    return pipes_subprocess_client.run(
-        command=build_spark_cmd("gold_dimensions.py", executor_memory="2g"),
-        context=context,
-        extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": "zone"}
-    ).get_materialize_result()
+    spark = pyspark.spark_session
+    metadata = gold_dimensions.process(spark, context.log, target_year, target_month, branch_name, "gold_dimensions")
+    return MaterializeResult(metadata=metadata)
 
-@asset(name="merge_nessie_branch_zone", deps=[gold_dimensions], description="Merge Zone Branch")
-def merge_nessie_branch_zone(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+@asset(name="merge_nessie_branch_zone", description="Merge Zone Branch to Main", deps=[gold_dimensions])
+def merge_nessie_branch_zone(context: AssetExecutionContext, pyspark: PySparkResource):
     target_year, target_month, branch_name = get_run_context(context, "zone")
-    return pipes_subprocess_client.run(
-        command=build_spark_cmd("merge_branch.py"),
-        context=context,
-        extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name}
-    ).get_materialize_result()
+    spark = pyspark.spark_session
+    metadata = merge_branch.process(spark, context.log, branch_name, "merge_nessie_branch_zone")
+    return MaterializeResult(metadata=metadata)
 
 all_assets.extend([silver_zone, dq_check_silver_zone, gold_dimensions, merge_nessie_branch_zone])
 
-# 2. Fact Trips
+# OTHER DATASETS
 def build_assets_for_type(dtype: str):
     
-    @asset(partitions_def=monthly_partitions, name=f"silver_{dtype}", description=f"Bronze -> Silver ({dtype})")
-    def _bronze_to_silver(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+    @asset(name=f"silver_{dtype}", partitions_def=monthly_partitions, description=f"Bronze to Silver for {dtype}")
+    def _silver(context: AssetExecutionContext, pyspark: PySparkResource):
         target_year, target_month, branch_name = get_run_context(context, dtype)
-        return pipes_subprocess_client.run(
-            command=build_spark_cmd("bronze_to_silver.py"), 
-            context=context,
-            extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": dtype}
-        ).get_materialize_result()
+        spark = pyspark.spark_session
+        metadata = bronze_to_silver.process(spark, context.log, dtype, target_year, target_month, branch_name, f"silver_{dtype}")
+        return MaterializeResult(metadata=metadata)
 
-    @asset(partitions_def=monthly_partitions, name=f"dq_check_silver_{dtype}", deps=[_bronze_to_silver], description=f"DQ Check Silver ({dtype})")
-    def _dq_silver(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+    @asset(name=f"dq_check_silver_{dtype}", partitions_def=monthly_partitions, description=f"DQ Check Silver for {dtype}", deps=[_silver])
+    def _dq_silver(context: AssetExecutionContext, pyspark: PySparkResource):
         target_year, target_month, branch_name = get_run_context(context, dtype)
-        return pipes_subprocess_client.run(
-            command=build_spark_cmd("dq_check_silver.py"), 
-            context=context,
-            extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": dtype}
-        ).get_materialize_result()
-        
-    @asset(partitions_def=monthly_partitions, name=f"gold_aggregates_{dtype}", deps=[_dq_silver], description=f"Silver -> Gold ({dtype})")
-    def _silver_to_gold(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
-        target_year, target_month, branch_name = get_run_context(context, dtype)
-        return pipes_subprocess_client.run(
-            command=build_spark_cmd("silver_to_gold.py"), 
-            context=context,
-            extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": dtype}
-        ).get_materialize_result()
+        spark = pyspark.spark_session
+        metadata = dq_check_silver.process(spark, context.log, dtype, target_year, target_month, branch_name, f"dq_check_silver_{dtype}")
+        return MaterializeResult(metadata=metadata)
 
-    @asset(partitions_def=monthly_partitions, name=f"dq_check_gold_{dtype}", deps=[_silver_to_gold], description=f"DQ Check Gold ({dtype})")
-    def _dq_gold(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+    @asset(name=f"gold_aggregates_{dtype}", partitions_def=monthly_partitions, description=f"Silver to Gold for {dtype}", deps=[_dq_silver])
+    def _gold(context: AssetExecutionContext, pyspark: PySparkResource):
         target_year, target_month, branch_name = get_run_context(context, dtype)
-        return pipes_subprocess_client.run(
-            command=build_spark_cmd("dq_check_gold.py"), 
-            context=context,
-            extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name, "dataset_type": dtype}
-        ).get_materialize_result()
+        spark = pyspark.spark_session
+        metadata = silver_to_gold.process(spark, context.log, dtype, target_year, target_month, branch_name, f"gold_aggregates_{dtype}")
+        return MaterializeResult(metadata=metadata)
 
-    @asset(partitions_def=monthly_partitions, name=f"merge_nessie_branch_{dtype}", deps=[_dq_gold], description=f"Merge {dtype} Branch")
-    def _merge_branch(context: AssetExecutionContext, pipes_subprocess_client: PipesSubprocessClient):
+    @asset(name=f"dq_check_gold_{dtype}", partitions_def=monthly_partitions, description=f"DQ Check Gold for {dtype}", deps=[_gold])
+    def _dq_gold(context: AssetExecutionContext, pyspark: PySparkResource):
         target_year, target_month, branch_name = get_run_context(context, dtype)
-        return pipes_subprocess_client.run(
-            command=build_spark_cmd("merge_branch.py"), 
-            context=context,
-            extras={"target_year": target_year, "target_month": target_month, "branch_name": branch_name}
-        ).get_materialize_result()
+        spark = pyspark.spark_session
+        metadata = dq_check_gold.process(spark, context.log, dtype, target_year, target_month, branch_name, f"dq_check_gold_{dtype}")
+        return MaterializeResult(metadata=metadata)
 
-    return [_bronze_to_silver, _dq_silver, _silver_to_gold, _dq_gold, _merge_branch]
+    @asset(name=f"merge_nessie_branch_{dtype}", partitions_def=monthly_partitions, description=f"Merge {dtype} Branch to Main", deps=[_dq_gold])
+    def _merge(context: AssetExecutionContext, pyspark: PySparkResource):
+        target_year, target_month, branch_name = get_run_context(context, dtype)
+        spark = pyspark.spark_session
+        metadata = merge_branch.process(spark, context.log, branch_name, f"merge_nessie_branch_{dtype}")
+        return MaterializeResult(metadata=metadata)
+    
+    return [_silver, _dq_silver, _gold, _dq_gold, _merge]
 
 for t in dataset_types:
     all_assets.extend(build_assets_for_type(t))
@@ -169,10 +150,17 @@ hvfhv_job = define_asset_job(
     selection=["silver_hvfhv", "dq_check_silver_hvfhv", "gold_aggregates_hvfhv", "dq_check_gold_hvfhv", "merge_nessie_branch_hvfhv"]
 )
 
+pyspark_resource = PySparkResource(
+    spark_config={
+        "spark.app.name": "Dagster_PySpark_App"
+    }
+)
+
 defs = Definitions(
     assets=all_assets,
     jobs=[zone_job, yellow_job, green_job, fhv_job, hvfhv_job],
     resources={
-        "pipes_subprocess_client": PipesSubprocessClient()
-    }
+        "pyspark": pyspark_resource
+    },
+    executor=in_process_executor
 )
