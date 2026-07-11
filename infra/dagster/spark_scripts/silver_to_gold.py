@@ -1,4 +1,3 @@
-from dagster_pipes import open_dagster_pipes
 from pyspark.sql import SparkSession, functions as F
 
 def write_partitioned_table(df, table_name, partition_cols):
@@ -71,8 +70,7 @@ def build_facts(spark, logger, dataset_type, target_year, target_month):
 
     df.unpersist()
 
-def process(spark, pipes, dataset_type: str, target_year: int, target_month: int, branch_name: str):
-    logger = pipes.log
+def process(spark, logger, dataset_type: str, target_year: int, target_month: int, branch_name: str, asset_key: str = None):
     logger.info(f"STARTING SILVER TO GOLD FOR {dataset_type.upper()} (Branch: {branch_name})")
 
     spark.sql(f"USE REFERENCE {branch_name} IN nessie")
@@ -81,21 +79,8 @@ def process(spark, pipes, dataset_type: str, target_year: int, target_month: int
     build_facts(spark, logger, dataset_type, target_year, target_month)
     logger.info(f"GOLD AGGREGATION completed for {dataset_type}!")
 
-    pipes.report_asset_materialization(
-        metadata={
+    return {
             "BRANCH_NAME": branch_name,
             "DATASET_TYPE": dataset_type,
             "TARGET_PERIOD": f"{target_year}-{target_month:02d}",
         }
-    )
-
-if __name__ == "__main__":
-    with open_dagster_pipes() as pipes:
-        dataset_type = pipes.get_extra("dataset_type")
-        target_year = pipes.get_extra("target_year")
-        target_month = pipes.get_extra("target_month")
-        branch_name = pipes.get_extra("branch_name")
-
-        spark = SparkSession.builder.appName(f"spark_silver_to_gold_{dataset_type}").getOrCreate()
-        process(spark, pipes, dataset_type, target_year, target_month, branch_name)
-        spark.stop()

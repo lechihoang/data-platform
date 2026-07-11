@@ -1,4 +1,3 @@
-from dagster_pipes import open_dagster_pipes
 from pyspark.sql import SparkSession, functions as F
 
 def write_partitioned_table(df, table_name, partition_cols):
@@ -38,8 +37,7 @@ def build_dimensions(spark, logger, target_year, target_month):
 
 
 
-def process(spark, pipes, target_year: int, target_month: int, branch_name: str):
-    logger = pipes.log
+def process(spark, logger, target_year: int, target_month: int, branch_name: str, asset_key: str = None):
     logger.info(f"STARTING GOLD DIMENSIONS (Branch: {branch_name})")
 
     spark.sql(f"USE REFERENCE {branch_name} IN nessie")
@@ -48,20 +46,8 @@ def process(spark, pipes, target_year: int, target_month: int, branch_name: str)
     build_dimensions(spark, logger, target_year, target_month)
     logger.info("GOLD DIMENSIONS completed!")
 
-    pipes.report_asset_materialization(
-        metadata={
+    return {
             "BRANCH_NAME": branch_name,
             "TARGET_PERIOD": f"{target_year}-{target_month:02d}" if target_year else "N/A",
             "GOLD_OBJECTS": "dim_location, dim_payment_type",
         }
-    )
-
-if __name__ == "__main__":
-    with open_dagster_pipes() as pipes:
-        target_year = pipes.get_extra("target_year")
-        target_month = pipes.get_extra("target_month")
-        branch_name = pipes.get_extra("branch_name")
-
-        spark = SparkSession.builder.appName("spark_gold_dimensions").getOrCreate()
-        process(spark, pipes, target_year, target_month, branch_name)
-        spark.stop()

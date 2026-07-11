@@ -1,12 +1,10 @@
-from dagster_pipes import open_dagster_pipes
 from pyspark.sql import SparkSession
 import great_expectations as gx
 
-def process(spark, pipes, dataset_type: str, target_year: int, target_month: int, branch_name: str):
-    logger = pipes.log
+def process(spark, logger, dataset_type: str, target_year: int, target_month: int, branch_name: str, asset_key: str = None):
     if dataset_type == "zone":
         logger.info("Zone lookup does not require Gold DQ checking. Skipping.")
-        pipes.report_asset_materialization(metadata={"STATUS": "SKIPPED_FOR_ZONE"})
+        return {"STATUS": "SKIPPED_FOR_ZONE"}
         return
 
     def validate_table_with_ge(gx_context, df, table_name, expectations_list):
@@ -55,22 +53,9 @@ def process(spark, pipes, dataset_type: str, target_year: int, target_month: int
 
     logger.info(f"Gold DQ validation passed for {dataset_type}.")
 
-    pipes.report_asset_materialization(
-        metadata={
+    return {
             "BRANCH_NAME": branch_name,
             "DATASET_TYPE": dataset_type,
             "TARGET_PERIOD": f"{target_year}-{target_month:02d}" if dataset_type != "zone" else "N/A",
             "DATA_QUALITY_STATUS": "PASSED"
         }
-    )
-
-if __name__ == "__main__":
-    with open_dagster_pipes() as pipes:
-        dataset_type = pipes.get_extra("dataset_type")
-        target_year = pipes.get_extra("target_year")
-        target_month = pipes.get_extra("target_month")
-        branch_name = pipes.get_extra("branch_name")
-        
-        spark = SparkSession.builder.appName(f"spark_dq_gold_{dataset_type}").getOrCreate()
-        process(spark, pipes, dataset_type, target_year, target_month, branch_name)
-        spark.stop()

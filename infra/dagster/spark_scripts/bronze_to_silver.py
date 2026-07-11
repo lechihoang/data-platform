@@ -3,7 +3,6 @@ from typing import Dict, Any
 from pyspark.sql import SparkSession, DataFrame, functions as F
 import sys
 import logging
-from dagster_pipes import open_dagster_pipes
 
 class AbstractProcessor(ABC):
     """Abstract Base Class for all data processors."""
@@ -294,8 +293,7 @@ def initialize_nessie_branch(spark: SparkSession, branch_name: str, logger: logg
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.silver")
 
 
-def process(spark, pipes, dataset_type: str, target_year: int, target_month: int, branch_name: str):
-    logger = pipes.log
+def process(spark, logger, dataset_type: str, target_year: int, target_month: int, branch_name: str, asset_key: str = None):
     params = {
         "target_year": target_year,
         "target_month": target_month,
@@ -308,22 +306,9 @@ def process(spark, pipes, dataset_type: str, target_year: int, target_month: int
     
     logger.info(f"Successfully processed {processed_rows} rows for {dataset_type} to branch {branch_name}")
     
-    pipes.report_asset_materialization(
-        metadata={
+    return {
             "BRANCH_NAME": branch_name,
             "DATASET_TYPE": dataset_type,
             "TARGET_PERIOD": f"{target_year}-{target_month:02d}" if target_year else "N/A",
             "PROCESSED_ROWS": processed_rows
         }
-    )
-
-if __name__ == "__main__":
-    with open_dagster_pipes() as pipes:
-        dataset_type = pipes.get_extra("dataset_type")
-        target_year = pipes.get_extra("target_year")
-        target_month = pipes.get_extra("target_month")
-        branch_name = pipes.get_extra("branch_name")
-        
-        spark = SparkSession.builder.appName(f"spark_silver_{dataset_type}").getOrCreate()
-        process(spark, pipes, dataset_type, target_year, target_month, branch_name)
-        spark.stop()
