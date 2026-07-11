@@ -35,7 +35,7 @@ services:
       QUARKUS_LOG_LEVEL: ${QUARKUS_LOG_LEVEL}
       # Persist data with RocksDB backend
       NESSIE_VERSION_STORE_TYPE: ROCKSDB
-      NESSIE_VERSION_STORE_PERSIST_ROCKSDB_DATABASE_PATH: /var/lib/nessie/rocks
+      NESSIE_VERSION_STORE_PERSIST_ROCKS_DATABASE_PATH: /var/lib/nessie/rocks
     volumes:
       - nessie_data:/var/lib/nessie/rocks
     networks:
