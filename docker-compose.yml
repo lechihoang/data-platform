@@ -49,7 +49,7 @@ services:
   spark-master:
     build:
       context: ./infra/spark
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.spark_master
     container_name: spark-master
     ports:
       - "8080:8080"
@@ -65,11 +65,12 @@ services:
       SPARK_DAEMON_JAVA_OPTS: "-Dlog4j.configurationFile=file:/opt/spark/conf/log4j2.properties"
       SPARK_AUTHENTICATE: "true"
       SPARK_AUTHENTICATE_SECRET: ${SPARK_RPC_SECRET}
-    entrypoint: ["bash", "-c", "/opt/spark/sbin/start-master.sh && tail -f /dev/null"]
+    entrypoint: ["bash", "-c", "cp -rn /opt/spark/baked-jars/* /opt/spark/custom-jars/ 2>/dev/null || true && /opt/spark/sbin/start-master.sh && tail -f /dev/null"]
     volumes:
       - ./infra/spark/config:/opt/spark/conf
       - spark-events:/opt/spark-events
       - spark-work:/opt/spark/work
+      - spark-jars:/opt/spark/custom-jars
     networks:
       - lakehouse
     depends_on:
@@ -79,14 +80,14 @@ services:
   spark-worker:
     build:
       context: ./infra/spark
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.spark_worker
     container_name: spark-worker
     ports:
       - "8081:8081"
     depends_on:
       - spark-master
     environment:
-      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_CORES: 4
       SPARK_WORKER_MEMORY: 4g
       SPARK_WORKER_WEBUI_PORT: 8081
       SPARK_PUBLIC_DNS: localhost
@@ -101,14 +102,15 @@ services:
       - ./infra/spark/config:/opt/spark/conf
       - spark-events:/opt/spark-events
       - spark-work:/opt/spark/work
+      - spark-jars:/opt/spark/custom-jars
     networks:
       - lakehouse
 
-  spark-history-server:
+  spark-history:
     build:
       context: ./infra/spark
-      dockerfile: Dockerfile
-    container_name: spark-history-server
+      dockerfile: Dockerfile.spark_worker
+    container_name: spark-history
     ports:
       - "18080:18080"
     environment:
@@ -141,6 +143,7 @@ services:
       - ./notebook:/opt/spark/work-dir/notebook
       - ./infra/spark/config:/opt/spark/conf
       - spark-events:/opt/spark-events
+      - spark-jars:/opt/spark/custom-jars
     networks:
       - lakehouse
     depends_on:
@@ -212,6 +215,7 @@ services:
       - ./infra/spark/config:/opt/spark/conf
       - spark-events:/opt/spark-events
       - /var/run/docker.sock:/var/run/docker.sock
+      - spark-jars:/opt/spark/custom-jars
     environment:
       AWS_REGION: ${AWS_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
@@ -241,3 +245,4 @@ volumes:
   nifi_content:
   nifi_provenance:
   nifi_conf:
+  spark-jars:
