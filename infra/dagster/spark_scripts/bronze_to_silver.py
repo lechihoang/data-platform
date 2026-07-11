@@ -101,6 +101,7 @@ class TripProcessor(AbstractProcessor):
             .filter(F.col("dropoff_datetime") > F.col("pickup_datetime"))
             .filter((F.col("fare_amount") >= 0) | F.col("fare_amount").isNull())
             .filter((F.col("total_amount") >= 0) | F.col("total_amount").isNull())
+            .filter((F.col("total_amount") <= 99999) | F.col("total_amount").isNull())
             .filter((F.col("passenger_count") > 0) | F.col("passenger_count").isNull())
             .filter((F.col("passenger_count") <= 9) | F.col("passenger_count").isNull())
             .filter((F.col("trip_distance") > 0) | F.col("trip_distance").isNull())
