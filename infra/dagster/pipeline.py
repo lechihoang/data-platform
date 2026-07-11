@@ -32,10 +32,10 @@ def build_spark_cmd(script_name, driver_memory="2g", executor_memory="3g"):
         "spark-submit",
         "--conf", f"spark.driver.memory={driver_memory}",
         "--conf", f"spark.executor.memory={executor_memory}",
-        "--conf", "spark.executor.cores=1",
+        "--conf", "spark.executor.cores=4",
+        "--conf", "spark.sql.shuffle.partitions=10",
         "--conf", "spark.driver.host=dagster",
         "--conf", "spark.driver.extraJavaOptions=-Duser.dir=/tmp",
-        "--conf", "spark.sql.shuffle.partitions=400",
         file_relative_path(__file__, f"spark_scripts/{script_name}")
     ]
 
