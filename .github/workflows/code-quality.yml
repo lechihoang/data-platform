@@ -1,0 +1,22 @@
+name: Code Quality CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main", "refactor/*", "feature/*", "hotfix/*" ]
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Run Pre-commit Hooks (Black, isort, Flake8)
+        uses: pre-commit/action@v3.0.1
