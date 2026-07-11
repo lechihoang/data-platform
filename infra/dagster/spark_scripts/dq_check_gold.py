@@ -35,7 +35,7 @@ def process(spark, pipes, dataset_type: str, target_year: int, target_month: int
     gx_context = gx.get_context(mode="ephemeral")
     spark.sql(f"USE REFERENCE {branch_name} IN nessie")
     
-    df_monthly = spark.table("nessie.gold.monthly_summary").filter(
+    df_monthly = spark.table("nessie.gold.fact_monthly_summary").filter(
         f"Year = {target_year} AND Month = {target_month} AND trip_type = '{dataset_type}'"
     )
     validate_table_with_ge(gx_context, df_monthly, f"monthly_summary_{dataset_type}", [
@@ -44,7 +44,7 @@ def process(spark, pipes, dataset_type: str, target_year: int, target_month: int
         gx.expectations.ExpectColumnValuesToNotBeNull(column="trip_type")
     ])
 
-    df_revenue = spark.table("nessie.gold.revenue_by_zone").filter(
+    df_revenue = spark.table("nessie.gold.fact_revenue_by_zone").filter(
         f"Year = {target_year} AND Month = {target_month} AND trip_type = '{dataset_type}'"
     )
     revenue_expectations = [gx.expectations.ExpectColumnValuesToNotBeNull(column="pulocation_id")]
