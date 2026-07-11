@@ -28,12 +28,12 @@ for job in yellow green fhv hvfhv; do
   fi
 done
 
-echo "--------------------------------------------------------"
-echo "🧹 ĐANG DỌN DẸP RÁC Ổ CỨNG (spark-work)..."
-echo "--------------------------------------------------------"
-docker exec spark-worker bash -c "rm -rf /opt/spark/work/*"
-docker exec spark-master bash -c "rm -rf /opt/spark/work/*"
-echo "✅ Đã dọn xong hàng chục GB file rác!"
+# echo "--------------------------------------------------------"
+# echo "🧹 ĐANG DỌN DẸP RÁC Ổ CỨNG (spark-work)..."
+# echo "--------------------------------------------------------"
+# docker exec spark-worker bash -c "rm -rf /opt/spark/work/*"
+# docker exec spark-master bash -c "rm -rf /opt/spark/work/*"
+# echo "✅ Đã dọn xong hàng chục GB file rác!"
 
 echo "=========================================================="
 echo "🎉 HOÀN TẤT TOÀN BỘ DATA CHO THÁNG $PARTITION CHỈ VỚI 1 LỆNH!"

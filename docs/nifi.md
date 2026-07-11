@@ -73,28 +73,23 @@ File này chứa một mảng JSON với thông tin: `url`, `bucket`, và `objec
 ---
 ## 3. Nâng cấp: Tối ưu hóa - Bỏ qua (Skip) file đã tồn tại trên MinIO (Native Method)
 
-Để tránh lãng phí băng thông tải lại những file dung lượng lớn khi chạy luồng nhiều lần, bạn có thể thiết lập cơ chế kiểm tra trước trên MinIO. Để tiết kiệm CPU tuyệt đối (không cần gọi lệnh OS bên ngoài), ta sẽ dùng chính client mạng nội tại của NiFi để gửi request dạng `HEAD` (chỉ lấy siêu dữ liệu, không lấy data).
+Để tránh lãng phí băng thông tải lại những file dung lượng lớn khi chạy luồng nhiều lần, bạn có thể thiết lập cơ chế kiểm tra trước trên MinIO. Vì bucket MinIO mặc định là Private, ta phải dùng hộp chuyên dụng hỗ trợ xác thực AWS Credential để gọi lệnh HEAD (chỉ kiểm tra sự tồn tại của file, không tải data) thay vì gọi HTTP REST API thông thường.
 
 **Cách thực hiện (Thêm vào giữa Bước 4 và Bước 5 ở trên):**
 Sau hộp số 4 (`EvaluateJsonPath`), thay vì nối thẳng sang `InvokeHTTP` kéo data, hãy chèn thêm hộp sau:
 
-1. **`InvokeHTTP`** (Đóng vai trò làm `Check S3 Object`):
+1. **`GetS3ObjectMetadata`** (Đóng vai trò làm `Check S3 Object` an toàn):
    - Cấu hình (Properties):
-     - `HTTP Method`: **`HEAD`** (Quan trọng: Phải dùng HEAD, không dùng GET)
-     - `HTTP URL`: `http://minio:9000/${s3.bucket}/${filename}`
-   - Hộp này sẽ hỏi MinIO xem file có tồn tại không. Kết quả trả về sẽ nằm trong thuộc tính `invokehttp.status.code`.
-   - Nối dây `Response` sang hộp điều hướng. Các dây còn lại Auto-terminate.
-
-2. **`RouteOnAttribute`** (Rẽ nhánh luồng dữ liệu):
-   - Cấu hình (Properties):
-     - Thêm 2 thuộc tính mới (Dấu +):
-       - `file_exists` -> Value: `${invokehttp.status.code:equals('200')}`
-       - `file_not_found` -> Value: `${invokehttp.status.code:equals('404')}`
+     - `Bucket`: Điền `${s3.bucket}`
+     - `Object Key`: Điền `${filename}`
+     - `AWS Credentials Provider service`: Chọn service AWSCredentialsProviderControllerService đã tạo.
+     - `Endpoint Override URL`: Điền `http://minio:9000`
+     - `Signer Override`: Điền `AWSS3V4SignerType`
    - Điều hướng dây:
-     - Dây `file_not_found` (chưa có trên MinIO): Nối vào hộp số 5 (`InvokeHTTP` - Method GET) ban đầu để bắt đầu tải data về.
-     - Dây `file_exists` (đã có sẵn): Auto-terminate (hoặc nối vào LogMessage để ghi log "Đã bỏ qua").
+     - Dây **`failure`** (Không thấy file trên MinIO): Nối vào hộp số 5 (`InvokeHTTP` - Method GET) ban đầu để bắt đầu tải data về.
+     - Dây **`found`** (Đã có sẵn trên MinIO): Auto-terminate (hoặc nối vào LogMessage để ghi log "Đã bỏ qua"). Các dây lỗi khác cũng Auto-terminate.
 
-Bằng cách này, NiFi kiểm tra trạng thái cực kỳ nhẹ nhàng qua mạng nội bộ, có thể đạt hàng ngàn file mỗi giây mà không gây tốn CPU cho máy chủ!
+Bằng cách này, NiFi sử dụng đúng chuẩn AWS Protocol (có ký xác thực đàng hoàng) để kiểm tra trạng thái cực kỳ nhẹ nhàng qua mạng nội bộ, đảm bảo bảo mật 100% cho Bucket mà không gây tốn CPU cho máy chủ!
 
 ---
 ## 4. Nâng cấp: Tối ưu hóa - Tăng tốc độ tải file (Performance Tuning)
