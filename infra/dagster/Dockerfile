@@ -21,7 +21,9 @@ RUN mkdir -p /opt/dagster/dagster_home/storage && \
 
 # Khai báo định danh user vào /etc/passwd để Hadoop/Spark không bị lỗi NullPointerException
 RUN groupadd -g 185 dagster && \
-    useradd -u 185 -g 185 -m -s /bin/bash dagster
+    useradd -u 185 -g 185 -m -s /bin/bash dagster && \
+    mkdir -p /opt/spark-events && \
+    chown -R 185:185 /opt/spark-events
 
 # Ép Dagster chạy dưới user 185 (giống UID của Spark) để chung volume permission
 USER 185
