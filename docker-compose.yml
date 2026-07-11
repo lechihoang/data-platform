@@ -35,13 +35,13 @@ services:
       QUARKUS_LOG_LEVEL: ${QUARKUS_LOG_LEVEL}
       # Persist data with RocksDB backend
       NESSIE_VERSION_STORE_TYPE: ROCKSDB
-      NESSIE_VERSION_STORE_PERSIST_ROCKS_DB_DATABASE_PATH: /var/lib/nessie/rocks
+      NESSIE_VERSION_STORE_PERSIST_ROCKSDB_DATABASE_PATH: /var/lib/nessie/rocks
     volumes:
-      - nessie_data:/var/lib/nessie
+      - nessie_data:/tmp/nessie-rocksdb-store
     networks:
       - lakehouse
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:19120/q/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/q/health"]
       interval: 30s
       timeout: 20s
       retries: 3
