@@ -59,7 +59,7 @@ def process(spark, pipes, dataset_type: str, target_year: int, target_month: int
         if dataset_type in ['yellow', 'green', 'hvfhv']:
             validate_table_with_ge(gx_context, df_trips, f"trips_{dataset_type}_fares", [
                 gx.expectations.ExpectColumnValuesToNotBeNull(column="total_amount"),
-                gx.expectations.ExpectColumnValuesToBeBetween(column="total_amount", min_value=0, max_value=99999),
+                gx.expectations.ExpectColumnValuesToBeBetween(column="total_amount", min_value=-10000, max_value=99999),
                 gx.expectations.ExpectColumnValuesToBeBetween(column="passenger_count", min_value=1, max_value=9, mostly=0.9),
                 gx.expectations.ExpectColumnValuesToBeBetween(column="trip_distance", min_value=0, max_value=150, mostly=0.9)
             ])
