@@ -13,6 +13,7 @@ from dagster import (
     in_process_executor
 )
 from dagster_pyspark import PySparkResource
+from dagster_openlineage import openlineage_sensor
 
 # Add the current directory to sys.path so we can import spark_scripts as a module
 sys.path.append(os.path.dirname(__file__))
@@ -22,7 +23,7 @@ from spark_scripts import dq_check_silver
 from spark_scripts import silver_to_gold
 from spark_scripts import dq_check_gold
 from spark_scripts import merge_branch
-from spark_scripts import gold_dimensions
+from spark_scripts import gold_dimensions as gold_dimensions_script
 
 monthly_partitions = MonthlyPartitionsDefinition(start_date="2024-01-01")
 
@@ -63,7 +64,7 @@ def dq_check_silver_zone(context: AssetExecutionContext, pyspark: PySparkResourc
 def gold_dimensions(context: AssetExecutionContext, pyspark: PySparkResource):
     target_year, target_month, branch_name = get_run_context(context, "zone")
     spark = pyspark.spark_session
-    metadata = gold_dimensions.process(spark, context.log, target_year, target_month, branch_name, "gold_dimensions")
+    metadata = gold_dimensions_script.process(spark, context.log, target_year, target_month, branch_name, "gold_dimensions")
     return MaterializeResult(metadata=metadata)
 
 @asset(name="merge_nessie_branch_zone", description="Merge Zone Branch to Main", deps=[gold_dimensions])
@@ -150,15 +151,24 @@ hvfhv_job = define_asset_job(
     selection=["silver_hvfhv", "dq_check_silver_hvfhv", "gold_aggregates_hvfhv", "dq_check_gold_hvfhv", "merge_nessie_branch_hvfhv"]
 )
 
+_spark_config = {
+    "spark.app.name": "Dagster_PySpark_App",
+    "spark.extraListeners": "io.openlineage.spark.agent.OpenLineageSparkListener",
+    "spark.openlineage.transport.type": "http",
+    "spark.openlineage.transport.url": os.environ.get("OPENLINEAGE_URL", "http://marquez-api:5000"),
+    "spark.openlineage.namespace": os.environ.get("OPENLINEAGE_NAMESPACE", "nyc-taxi-lakehouse"),
+    # Gắn lineage vào cùng job/run của Dagster để trùng khớp với sensor asset-level
+    "spark.openlineage.facets.disabled": "[spark_unknown]",
+}
+
 pyspark_resource = PySparkResource(
-    spark_config={
-        "spark.app.name": "Dagster_PySpark_App"
-    }
+    spark_config=_spark_config
 )
 
 defs = Definitions(
     assets=all_assets,
     jobs=[zone_job, yellow_job, green_job, fhv_job, hvfhv_job],
+    sensors=[openlineage_sensor(include_asset_events=True)],
     resources={
         "pyspark": pyspark_resource
     },

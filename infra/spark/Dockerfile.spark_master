@@ -19,6 +19,7 @@ RUN mkdir -p /opt/spark/baked-jars && \
     curl -sL -o /opt/spark/baked-jars/nessie-spark-extensions-4.0_2.13-0.108.1.jar https://repo1.maven.org/maven2/org/projectnessie/nessie-integrations/nessie-spark-extensions-4.0_2.13/0.108.1/nessie-spark-extensions-4.0_2.13-0.108.1.jar && \
     curl -sL -o /opt/spark/baked-jars/bundle-2.24.6.jar https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.24.6/bundle-2.24.6.jar && \
     curl -sL -o /opt/spark/baked-jars/wildfly-openssl-1.1.3.Final.jar https://repo1.maven.org/maven2/org/wildfly/openssl/wildfly-openssl/1.1.3.Final/wildfly-openssl-1.1.3.Final.jar && \
+    curl -sL -o /opt/spark/baked-jars/openlineage-spark_2.13-1.51.0.jar https://repo1.maven.org/maven2/io/openlineage/openlineage-spark_2.13/1.51.0/openlineage-spark_2.13-1.51.0.jar && \
     chown -R 185:185 /opt/spark/baked-jars
 
 RUN mkdir -p /opt/spark/custom-jars /opt/spark-events /opt/spark/work && \

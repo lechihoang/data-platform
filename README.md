@@ -13,6 +13,7 @@ Dự án này xây dựng một hệ thống Data Lakehouse hoàn chỉnh để 
 - **Project Nessie**: Đóng vai trò là **Data Catalog & Version Control**. Nessie quản lý metadata của Iceberg, cung cấp các tính năng quản lý phiên bản dữ liệu (branch, merge, rollback).
 - **Dagster**: Đóng vai trò là công cụ **Data Orchestration**. Dagster sẽ điều phối và quản lý toàn bộ pipeline ETL, theo dõi sự phụ thuộc giữa các tác vụ (assets/ops) và kích hoạt các job Spark chạy tự động.
 - **Trino**: Đóng vai trò là **Interactive Query Engine**. Trino kết nối trực tiếp tới Nessie catalog (branch `main`) để truy vấn SQL nhanh trên các bảng Iceberg ở tầng gold/silver, không cần khởi động Spark.
+- **Marquez + OpenLineage** (tùy chọn, on-demand): Đóng vai trò là **Data Lineage & Metadata**. Dagster phát sự kiện OpenLineage (schema, column lineage, kết quả data quality) qua sensor; Marquez thu thập và trực quan hóa lineage giữa các asset. Chạy tách riêng để giữ stack chính nhẹ — chỉ bật khi cần khám phá/trình diễn lineage.
 
 ## 2. Data Flow
 
@@ -110,3 +111,7 @@ nyc-taxi-lakehouse/
    - **Spark History Server**: `http://localhost:18080`
    - **Nessie Catalog API**: `http://localhost:19120`
    - **Trino UI**: `http://localhost:8085`
+8. **Data Lineage với Marquez** (Tùy chọn, on-demand): Marquez chạy tách riêng để giữ stack chính nhẹ.
+   - Bật kèm stack chính: `docker compose -f docker-compose.yml -f docker-compose.metadata.yml up -d`
+   - Truy cập **Marquez UI** tại `http://localhost:3001` để xem lineage giữa các asset (Dagster tự đẩy sự kiện OpenLineage khi chạy pipeline).
+   - Tắt riêng Marquez (giữ stack chính chạy): `docker compose -f docker-compose.yml -f docker-compose.metadata.yml stop marquez-db marquez-api marquez-web`

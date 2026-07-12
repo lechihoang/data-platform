@@ -1,0 +1,90 @@
+# Metadata / Lineage stack (Marquez + OpenLineage) — chạy on-demand, tách khỏi compose chính.
+#
+# File này chứa override cho service `dagster` (thêm OPENLINEAGE_URL), nên PHẢI luôn
+# đi kèm compose chính. Không chạy độc lập `-f docker-compose.metadata.yml` một mình.
+#
+# Bật Marquez + nạp lineage cho Dagster:
+#   docker compose -f docker-compose.yml -f docker-compose.metadata.yml up -d marquez-db marquez-api marquez-web dagster
+#
+# Tắt riêng Marquez (giữ nguyên stack chính):
+#   docker compose -f docker-compose.yml -f docker-compose.metadata.yml rm -sf marquez-web marquez-api marquez-db
+#
+# Marquez nhận sự kiện OpenLineage do Dagster phát ra (xem sensor trong infra/dagster/pipeline.py).
+# Web UI:  http://localhost:3001   (Dagster giữ 3000)
+# API:     http://localhost:5002   (endpoint OpenLineage; nội bộ vẫn là marquez-api:5000)
+
+services:
+  marquez-db:
+    image: postgres:14
+    container_name: marquez-db
+    environment:
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+      POSTGRES_DB: marquez
+    volumes:
+      - marquez_db:/var/lib/postgresql/data
+    networks:
+      - lakehouse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marquez"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  marquez-api:
+    build:
+      context: infra/openlineage
+      dockerfile: Dockerfile.marquez
+    image: marquez-api-custom:latest
+    container_name: marquez-api
+    ports:
+      - "5002:5000"   # API + endpoint OpenLineage
+      - "5003:5001"   # admin/health
+    environment:
+      MARQUEZ_PORT: 5000
+      MARQUEZ_ADMIN_PORT: 5001
+      POSTGRES_HOST: marquez-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: marquez
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+      SEARCH_ENABLED: "false"   # tắt OpenSearch để giữ stack nhẹ
+    networks:
+      - lakehouse
+    depends_on:
+      marquez-db:
+        condition: service_healthy
+
+  marquez-web:
+    build:
+      context: infra/openlineage
+      dockerfile: Dockerfile.marquez_web
+    image: marquez-web-custom:latest
+    container_name: marquez-web
+    ports:
+      - "3001:3000"
+    environment:
+      MARQUEZ_HOST: marquez-api
+      MARQUEZ_PORT: 5000
+      WEB_PORT: 3000
+    networks:
+      - lakehouse
+    depends_on:
+      - marquez-api
+
+  # Override service dagster từ compose chính: chỉ khi chạy kèm file này,
+  # Dagster mới đẩy lineage sang Marquez. Compose chính vẫn nguyên vẹn.
+  dagster:
+    environment:
+      OPENLINEAGE_URL: http://marquez-api:5000
+      OPENLINEAGE_NAMESPACE: nyc-taxi-lakehouse
+    depends_on:
+      - marquez-api
+
+networks:
+  lakehouse:
+    external: true
+    name: projectcty_lakehouse
+
+volumes:
+  marquez_db:
